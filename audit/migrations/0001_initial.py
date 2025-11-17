@@ -15,14 +15,14 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Job',
+            name='AuditLog',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200)),
-                ('description', models.TextField(blank=True)),
-                ('price', models.DecimalField(decimal_places=2, max_digits=10)),
-                ('is_open', models.BooleanField(default=True)),
-                ('posted_by', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                ('action', models.CharField(max_length=100)),
+                ('target', models.CharField(blank=True, max_length=200)),
+                ('timestamp', models.DateTimeField(auto_now_add=True)),
+                ('metadata', models.JSONField(blank=True, null=True)),
+                ('actor', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL)),
             ],
         ),
     ]

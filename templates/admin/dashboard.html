@@ -1,0 +1,45 @@
+{% extends 'admin/base_site.html' %}
+
+{% block content %}
+<h1>Hyrind Dashboard</h1>
+<div style="display:flex; gap:2rem;">
+  <div style="padding:1rem; border:1px solid #ddd;">
+    <h2>Onboarded Users</h2>
+    <p style="font-size:2rem;">{{ onboarded }}</p>
+  </div>
+  <div style="padding:1rem; border:1px solid #ddd;">
+    <h2>Active Subscriptions</h2>
+    <p style="font-size:2rem;">{{ active_subs }}</p>
+  </div>
+  <div style="padding:1rem; border:1px solid #ddd;">
+    <h2>Assignments</h2>
+    <p style="font-size:2rem;">{{ assignments }}</p>
+  </div>
+</div>
+<hr />
+<h2>Recent Audit Events</h2>
+<table style="width:100%; border-collapse: collapse;">
+  <thead>
+    <tr>
+      <th style="text-align:left; border-bottom:1px solid #ccc; padding:0.5rem;">Time</th>
+      <th style="text-align:left; border-bottom:1px solid #ccc; padding:0.5rem;">Actor</th>
+      <th style="text-align:left; border-bottom:1px solid #ccc; padding:0.5rem;">Action</th>
+      <th style="text-align:left; border-bottom:1px solid #ccc; padding:0.5rem;">Target</th>
+      <th style="text-align:left; border-bottom:1px solid #ccc; padding:0.5rem;">Metadata</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in recent_audit %}
+    <tr>
+      <td style="padding:0.5rem; border-bottom:1px solid #eee;">{{ a.timestamp }}</td>
+  <td style="padding:0.5rem; border-bottom:1px solid #eee;">{% if a.actor %}{{ a.actor.username }}{% else %}-{% endif %}</td>
+      <td style="padding:0.5rem; border-bottom:1px solid #eee;">{{ a.action }}</td>
+      <td style="padding:0.5rem; border-bottom:1px solid #eee;">{{ a.target }}</td>
+      <td style="padding:0.5rem; border-bottom:1px solid #eee;">{{ a.metadata }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5">No audit events yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
