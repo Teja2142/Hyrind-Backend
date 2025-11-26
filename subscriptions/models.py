@@ -12,4 +12,4 @@ class Subscription(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"Subscription for {self.profile.full_name} - {self.plan} ({self.status})"
+        return f"Subscription for {self.profile.first_name} {self.profile.last_name} - {self.plan} ({self.status})"

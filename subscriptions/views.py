@@ -28,8 +28,8 @@ class SubscriptionListCreateView(ProfileResolveMixin, generics.ListCreateAPIView
         # Audit log
         try:
             from audit.utils import log_action
-            # use public_id for external references
-            log_action(actor=request.user if request.user.is_authenticated else None, action='subscription_created', target=f'Subscription:{subscription.id}', metadata={'plan': plan, 'profile_public_id': str(profile.public_id)})
+            # use profile.id (UUID) for external references
+            log_action(actor=request.user if request.user.is_authenticated else None, action='subscription_created', target=f'Subscription:{subscription.id}', metadata={'plan': plan, 'profile_id': str(profile.id)})
         except Exception:
             pass
         serializer = self.get_serializer(subscription)

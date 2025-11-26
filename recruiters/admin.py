@@ -33,4 +33,4 @@ class RecruiterAdmin(admin.ModelAdmin):
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('profile', 'recruiter', 'assigned_at')
-    search_fields = ('profile__full_name', 'recruiter__name')
+    search_fields = ('profile__first_name', 'profile__last_name', 'profile__email', 'recruiter__name')

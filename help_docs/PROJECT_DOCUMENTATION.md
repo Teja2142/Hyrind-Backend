@@ -9,7 +9,8 @@ A modular Django REST API for client onboarding, hiring, subscription management
 
 ### 1. User Registration & Profile
 - Registration endpoint with password confirmation and terms acceptance
-- Profile CRUD (full_name, email, phone, university, degree, major, visa_status, graduation_date, resume)
+- Profile CRUD (first_name, last_name, email, phone, university, degree, major, visa_status, graduation_date, resume_file)
+- Email-based authentication (email is used as username)
 
 ### 2. Authentication
 - JWT authentication using djangorestframework-simplejwt
@@ -73,10 +74,10 @@ graph TD
 ---
 
 ## API Endpoints Summary
-- `/api/users/register/` — User registration
-- `/api/token/` — JWT login
+- `/api/users/register/` — User registration (requires email, password, first_name, last_name, phone, resume_file)
+- `/api/token/` — JWT login (requires email and password)
 - `/api/token/refresh/` — JWT refresh
-- `/api/users/profiles/` — Profile CRUD
+- `/api/users/profiles/<uuid:id>/` — Profile retrieve/update/delete by UUID
 - `/api/onboarding/` — Onboarding steps
 - `/api/subscriptions/` — Subscription management
 - `/api/recruiters/assign/` — Recruiter assignment (admin only)

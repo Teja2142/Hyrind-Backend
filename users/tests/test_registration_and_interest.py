@@ -14,7 +14,6 @@ class RegistrationAndInterestTests(APITestCase):
 
     def test_registration_success(self):
         data = {
-            'username': 'candidate1',
             'email': 'cand1@example.com',
             'password': 'TestPass123!',
             'confirm_password': 'TestPass123!',
@@ -35,12 +34,11 @@ class RegistrationAndInterestTests(APITestCase):
         files = {'resume_file': self._make_resume()}
         resp = self.client.post(self.register_url, data, format='multipart', files=files)
         self.assertEqual(resp.status_code, 201)
-        self.assertIn('profile_public_id', resp.data)
-        self.assertTrue(User.objects.filter(username='candidate1').exists())
+        self.assertIn('profile_id', resp.data)
+        self.assertTrue(User.objects.filter(username='cand1@example.com').exists())
 
     def test_registration_requires_opt_end_date_on_f1_opt(self):
         data = {
-            'username': 'candidate2',
             'email': 'cand2@example.com',
             'password': 'TestPass123!',
             'confirm_password': 'TestPass123!',

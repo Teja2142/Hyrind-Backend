@@ -9,17 +9,17 @@ from datetime import datetime
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'username', 'email')
+        fields = ('id', 'email')  # Removed username since we use email for auth
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
-    public_id = serializers.UUIDField(source='profile.public_id', read_only=True)
+    profile_id = serializers.UUIDField(source='profile.id', read_only=True)
     class Meta:
         model = User
-        fields = ('id', 'public_id', 'username', 'email')
+        fields = ('id', 'profile_id', 'email')  # Removed username
 
 class ProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer()
+    user = UserSerializer(read_only=True)  # Make nested serializer read-only to avoid Swagger error
 
     class Meta:
         model = Profile
@@ -31,10 +31,13 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         import re
-        # phone format
+        # phone format: 10-12 digits only
         phone = data.get('phone')
-        if phone and not re.match(r'^\+1-\d{3}-\d{3}-\d{4}$', phone):
-            raise serializers.ValidationError({'phone': 'Phone must be in format +1-XXX-XXX-XXXX'})
+        if phone:
+            # Remove any non-digit characters for validation
+            digits_only = re.sub(r'\D', '', phone)
+            if not re.match(r'^\d{10,12}$', digits_only):
+                raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
         # graduation_date
         gd = data.get('graduation_date')
@@ -82,7 +85,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         return data
 
 class RegistrationSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=150)
+    # Removed username - we'll use email as username for Django User model
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
@@ -94,9 +97,9 @@ class RegistrationSerializer(serializers.Serializer):
     major = serializers.CharField(max_length=100)
     visa_status = serializers.ChoiceField(choices=['F1-OPT', 'F1-CPT', 'H1B', 'Green Card', 'Citizen', 'Other'])
     graduation_date = serializers.CharField(help_text='MM/YYYY')
-    opt_end_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY - required when visa_status=F1-OPT')
+    opt_end_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY (if applicable)')
     resume_file = serializers.FileField()
-    referral_source = serializers.ChoiceField(choices=['Google', 'LinkedIn', 'Friend', 'University', 'Other'])
+    referral_source = serializers.ChoiceField(choices=['Google', 'LinkedIn', 'Friend', 'University', 'Other'],required=False, allow_blank=True)
     consent_to_terms = serializers.BooleanField()
     linkedin_url = serializers.CharField(required=False, allow_blank=True)
     github_url = serializers.CharField(required=False, allow_blank=True)
@@ -115,10 +118,13 @@ class RegistrationSerializer(serializers.Serializer):
         if User.objects.filter(email=data['email']).exists():
             raise serializers.ValidationError({'email': 'A user with that email already exists.'})
 
-        # phone format +1-XXX-XXX-XXXX
+        # phone format: 10-12 digits only
         import re
-        if not re.match(r'^\+1-\d{3}-\d{3}-\d{4}$', data['phone']):
-            raise serializers.ValidationError({'phone': 'Phone must be in format +1-XXX-XXX-XXXX'})
+        phone = data.get('phone', '')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', phone)
+        if not re.match(r'^\d{10,12}$', digits_only):
+            raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
         # parse graduation_date (MM/YYYY)
         try:
@@ -159,17 +165,20 @@ class RegistrationSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
-        username = validated_data['username']
         email = validated_data['email']
         password = validated_data['password']
-        user = User.objects.create_user(username=username, email=email, password=password,
-                        first_name=validated_data.get('first_name', ''),
-                        last_name=validated_data.get('last_name', ''))
+        # Use email as username for Django User model authentication
+        user = User.objects.create_user(
+            username=email,  # Use email as username
+            email=email,
+            password=password,
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', '')
+        )
         profile = Profile.objects.create(
             user=user,
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),
-            full_name=f"{validated_data.get('first_name','')} {validated_data.get('last_name','')}",
             email=email,
             phone=validated_data['phone'],
             university=validated_data.get('university', ''),
@@ -177,7 +186,7 @@ class RegistrationSerializer(serializers.Serializer):
             major=validated_data.get('major', ''),
             visa_status=validated_data.get('visa_status', ''),
             graduation_date=validated_data.get('graduation_date', None),
-            resume=validated_data.get('resume_file', None),
+            resume_file=validated_data.get('resume_file', None),
             opt_end_date=validated_data.get('opt_end_date', None),
             consent_to_terms=validated_data['consent_to_terms'],
             referral_source=validated_data.get('referral_source', None),
@@ -187,7 +196,7 @@ class RegistrationSerializer(serializers.Serializer):
         )
         try:
             from audit.utils import log_action
-            log_action(actor=user, action='user_registered', target=f'Profile:{str(profile.public_id)}', metadata={'username': username})
+            log_action(actor=user, action='user_registered', target=f'Profile:{str(profile.id)}', metadata={'email': email})
         except Exception:
             pass
 
@@ -210,9 +219,12 @@ class InterestSubmissionSerializer(serializers.ModelSerializer):
     def validate(self, data):
         import re
         # email uniqueness for interest form: allow duplicates but ensure format
-        # phone format check
-        if not re.match(r'^\+1-\d{3}-\d{3}-\d{4}$', data.get('phone', '')):
-            raise serializers.ValidationError({'phone': 'Phone must be in format +1-XXX-XXX-XXXX'})
+        # phone format: 10-12 digits only
+        phone = data.get('phone', '')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', phone)
+        if not re.match(r'^\d{10,12}$', digits_only):
+            raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
         # graduation
         gd = data.get('graduation_date')

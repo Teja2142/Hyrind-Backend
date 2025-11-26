@@ -5,7 +5,7 @@ from .models import Onboarding
 class OnboardingAdmin(admin.ModelAdmin):
     list_display = ('profile', 'current_step', 'completed', 'started_at', 'completed_at')
     list_filter = ('completed', 'current_step')
-    search_fields = ('profile__full_name',)
+    search_fields = ('profile__first_name', 'profile__last_name', 'profile__email')
     actions = ['mark_complete', 'export_selected']
 
     def mark_complete(self, request, queryset):
@@ -28,6 +28,7 @@ class OnboardingAdmin(admin.ModelAdmin):
         writer = csv.writer(response)
         writer.writerow(['id', 'profile', 'current_step', 'completed', 'steps_completed'])
         for o in queryset:
-            writer.writerow([o.id, o.profile.full_name if o.profile else '', o.current_step, o.completed, '|'.join(o.steps_completed)])
+            profile_name = f"{o.profile.first_name} {o.profile.last_name}" if o.profile else ''
+            writer.writerow([o.id, profile_name, o.current_step, o.completed, '|'.join(o.steps_completed)])
         return response
     export_selected.short_description = 'Export selected onboardings to CSV'

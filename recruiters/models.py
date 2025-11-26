@@ -17,4 +17,4 @@ class Assignment(models.Model):
     assigned_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.profile.full_name} assigned to {self.recruiter.name if self.recruiter else 'None'}"
+        return f"{self.profile.first_name} {self.profile.last_name} assigned to {self.recruiter.name if self.recruiter else 'None'}"

@@ -29,7 +29,7 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
         # Audit log
         try:
             from audit.utils import log_action
-            log_action(actor=request.user if request.user.is_authenticated else None, action='recruiter_assigned', target=f'Profile:{str(profile.public_id)}', metadata={'recruiter_id': recruiter_id})
+            log_action(actor=request.user if request.user.is_authenticated else None, action='recruiter_assigned', target=f'Profile:{str(profile.id)}', metadata={'recruiter_id': recruiter_id})
         except Exception:
             pass
         serializer = self.get_serializer(assignment)

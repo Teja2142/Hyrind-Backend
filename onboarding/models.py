@@ -26,7 +26,7 @@ class Onboarding(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"Onboarding for {self.profile.full_name} - Step: {self.current_step}"
+        return f"Onboarding for {self.profile.first_name} {self.profile.last_name} - Step: {self.current_step}"
 
     def mark_step_complete(self, step):
         if step not in self.steps_completed:

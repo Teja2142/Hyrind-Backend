@@ -5,7 +5,7 @@ from .models import Subscription
 class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ('profile', 'plan', 'status', 'started_at', 'ended_at')
     list_filter = ('status', 'plan')
-    search_fields = ('profile__full_name',)
+    search_fields = ('profile__first_name', 'profile__last_name', 'profile__email')
     actions = ['mark_inactive', 'export_selected']
 
     def mark_inactive(self, request, queryset):
@@ -21,6 +21,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
         writer = csv.writer(response)
         writer.writerow(['id', 'profile', 'plan', 'status', 'started_at', 'ended_at'])
         for s in queryset:
-            writer.writerow([s.id, s.profile.full_name if s.profile else '', s.plan, s.status, s.started_at, s.ended_at])
+            profile_name = f"{s.profile.first_name} {s.profile.last_name}".strip() if s.profile else ''
+            writer.writerow([s.id, profile_name, s.plan, s.status, s.started_at, s.ended_at])
         return response
     export_selected.short_description = 'Export selected subscriptions to CSV'
