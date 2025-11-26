@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Profile, InterestSubmission
+from .models import Profile, InterestSubmission, Contact
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 import os
@@ -266,4 +266,50 @@ class InterestSubmissionSerializer(serializers.ModelSerializer):
         if not data.get('consent_to_terms'):
             raise serializers.ValidationError({'consent_to_terms': 'Consent to terms is required.'})
 
+        return data
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Contact model - handles contact form submissions
+    """
+    class Meta:
+        model = Contact
+        fields = ['id', 'full_name', 'email', 'phone', 'message', 'created_at', 'responded']
+        read_only_fields = ['id', 'created_at', 'responded']
+
+    def validate(self, data):
+        import re
+        
+        # Validate full_name
+        full_name = data.get('full_name', '').strip()
+        if not full_name:
+            raise serializers.ValidationError({'full_name': 'Full name is required.'})
+        if len(full_name) < 2:
+            raise serializers.ValidationError({'full_name': 'Full name must be at least 2 characters.'})
+        
+        # Validate email format (handled by EmailField but adding custom message)
+        email = data.get('email', '')
+        if not email:
+            raise serializers.ValidationError({'email': 'Email is required.'})
+        
+        # Validate phone: 10-12 digits only
+        phone = data.get('phone', '')
+        if phone:
+            # Remove any non-digit characters for validation
+            digits_only = re.sub(r'\D', '', phone)
+            if not re.match(r'^\d{10,12}$', digits_only):
+                raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
+        else:
+            raise serializers.ValidationError({'phone': 'Phone number is required.'})
+        
+        # Validate message
+        message = data.get('message', '').strip()
+        if not message:
+            raise serializers.ValidationError({'message': 'Message is required.'})
+        if len(message) < 10:
+            raise serializers.ValidationError({'message': 'Message must be at least 10 characters.'})
+        if len(message) > 2000:
+            raise serializers.ValidationError({'message': 'Message must not exceed 2000 characters.'})
+        
         return data
