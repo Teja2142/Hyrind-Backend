@@ -1,0 +1,269 @@
+from django.contrib.auth.models import User
+from rest_framework import serializers
+from .models import Profile, InterestSubmission
+from django.core.validators import URLValidator
+from django.core.exceptions import ValidationError
+import os
+from datetime import datetime
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'email')  # Removed username since we use email for auth
+
+
+class UserPublicSerializer(serializers.ModelSerializer):
+    profile_id = serializers.UUIDField(source='profile.id', read_only=True)
+    class Meta:
+        model = User
+        fields = ('id', 'profile_id', 'email')  # Removed username
+
+class ProfileSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)  # Make nested serializer read-only to avoid Swagger error
+
+    class Meta:
+        model = Profile
+        fields = [
+            'id', 'user', 'first_name', 'last_name', 'email', 'phone', 'university',
+            'degree', 'major', 'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'consent_to_terms',
+            'referral_source', 'linkedin_url', 'github_url', 'additional_notes'
+        ]
+
+    def validate(self, data):
+        import re
+        # phone format: 10-12 digits only
+        phone = data.get('phone')
+        if phone:
+            # Remove any non-digit characters for validation
+            digits_only = re.sub(r'\D', '', phone)
+            if not re.match(r'^\d{10,12}$', digits_only):
+                raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
+
+        # graduation_date
+        gd = data.get('graduation_date')
+        if gd and isinstance(gd, str):
+            try:
+                data['graduation_date'] = datetime.strptime(gd, '%m/%Y').date()
+            except Exception:
+                raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
+
+        # opt_end_date
+        if data.get('visa_status') == 'F1-OPT':
+            opt = data.get('opt_end_date')
+            if not opt:
+                raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
+            if isinstance(opt, str):
+                try:
+                    data['opt_end_date'] = datetime.strptime(opt, '%m/%Y').date()
+                except Exception:
+                    raise serializers.ValidationError({'opt_end_date': 'opt_end_date must be MM/YYYY'})
+
+        # resume_file validation
+        resume_file = data.get('resume_file')
+        if resume_file:
+            name = resume_file.name.lower()
+            if not (name.endswith('.pdf') or name.endswith('.docx')):
+                raise serializers.ValidationError({'resume_file': 'Resume must be a PDF or DOCX file.'})
+            if resume_file.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError({'resume_file': 'Resume must be 5MB or smaller.'})
+
+        # URLs
+        url_validator = URLValidator()
+        for field in ('linkedin_url', 'github_url'):
+            val = data.get(field)
+            if val:
+                try:
+                    url_validator(val)
+                except ValidationError:
+                    raise serializers.ValidationError({field: 'Invalid URL'})
+
+        # consent
+        consent = data.get('consent_to_terms')
+        if consent is not None and not consent:
+            raise serializers.ValidationError({'consent_to_terms': 'Consent to terms is required.'})
+
+        return data
+
+class RegistrationSerializer(serializers.Serializer):
+    # Removed username - we'll use email as username for Django User model
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+    first_name = serializers.CharField(max_length=50)
+    last_name = serializers.CharField(max_length=50)
+    phone = serializers.CharField(max_length=20)
+    university = serializers.CharField(max_length=100)
+    degree = serializers.ChoiceField(choices=[("Bachelor's", "Bachelor's"), ("Master's", "Master's"), ("PhD", "PhD")])
+    major = serializers.CharField(max_length=100)
+    visa_status = serializers.ChoiceField(choices=['F1-OPT', 'F1-CPT', 'H1B', 'Green Card', 'Citizen', 'Other'])
+    graduation_date = serializers.CharField(help_text='MM/YYYY')
+    opt_end_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY (if applicable)')
+    resume_file = serializers.FileField()
+    referral_source = serializers.ChoiceField(choices=['Google', 'LinkedIn', 'Friend', 'University', 'Other'],required=False, allow_blank=True)
+    consent_to_terms = serializers.BooleanField()
+    linkedin_url = serializers.CharField(required=False, allow_blank=True)
+    github_url = serializers.CharField(required=False, allow_blank=True)
+    additional_notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+    def validate(self, data):
+        # passwords
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError('Passwords do not match.')
+
+        # consent
+        if not data.get('consent_to_terms'):
+            raise serializers.ValidationError('Consent to terms is required.')
+
+        # unique email check
+        if User.objects.filter(email=data['email']).exists():
+            raise serializers.ValidationError({'email': 'A user with that email already exists.'})
+
+        # phone format: 10-12 digits only
+        import re
+        phone = data.get('phone', '')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', phone)
+        if not re.match(r'^\d{10,12}$', digits_only):
+            raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
+
+        # parse graduation_date (MM/YYYY)
+        try:
+            datetime_obj = datetime.strptime(data['graduation_date'], '%m/%Y')
+            data['graduation_date'] = datetime_obj.date()
+        except Exception:
+            raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
+
+        # opt_end_date required if F1-OPT
+        if data.get('visa_status') == 'F1-OPT':
+            if not data.get('opt_end_date'):
+                raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
+            try:
+                dt_opt = datetime.strptime(data['opt_end_date'], '%m/%Y')
+                data['opt_end_date'] = dt_opt.date()
+            except Exception:
+                raise serializers.ValidationError({'opt_end_date': 'opt_end_date must be MM/YYYY'})
+
+        # resume file type/size
+        resume_file = data.get('resume_file')
+        if resume_file:
+            name = resume_file.name.lower()
+            if not (name.endswith('.pdf') or name.endswith('.docx')):
+                raise serializers.ValidationError({'resume_file': 'Resume must be a PDF or DOCX file.'})
+            if resume_file.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError({'resume_file': 'Resume must be 5MB or smaller.'})
+
+        # urls validation
+        url_validator = URLValidator()
+        for field in ('linkedin_url', 'github_url'):
+            val = data.get(field)
+            if val:
+                try:
+                    url_validator(val)
+                except ValidationError:
+                    raise serializers.ValidationError({field: 'Invalid URL'})
+
+        return data
+
+    def create(self, validated_data):
+        email = validated_data['email']
+        password = validated_data['password']
+        # Use email as username for Django User model authentication
+        user = User.objects.create_user(
+            username=email,  # Use email as username
+            email=email,
+            password=password,
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', '')
+        )
+        profile = Profile.objects.create(
+            user=user,
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            email=email,
+            phone=validated_data['phone'],
+            university=validated_data.get('university', ''),
+            degree=validated_data.get('degree', ''),
+            major=validated_data.get('major', ''),
+            visa_status=validated_data.get('visa_status', ''),
+            graduation_date=validated_data.get('graduation_date', None),
+            resume_file=validated_data.get('resume_file', None),
+            opt_end_date=validated_data.get('opt_end_date', None),
+            consent_to_terms=validated_data['consent_to_terms'],
+            referral_source=validated_data.get('referral_source', None),
+            linkedin_url=validated_data.get('linkedin_url', None),
+            github_url=validated_data.get('github_url', None),
+            additional_notes=validated_data.get('additional_notes', None)
+        )
+        try:
+            from audit.utils import log_action
+            log_action(actor=user, action='user_registered', target=f'Profile:{str(profile.id)}', metadata={'email': email})
+        except Exception:
+            pass
+
+        return profile
+
+
+class InterestSubmissionSerializer(serializers.ModelSerializer):
+    # Accepts graduation/opt in MM/YYYY format or Date input; conversion handled in validate()
+    graduation_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY')
+    opt_end_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY')
+
+    class Meta:
+        model = InterestSubmission
+        fields = [
+            'id', 'first_name', 'last_name', 'email', 'phone', 'university', 'degree', 'major',
+            'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'referral_source',
+            'consent_to_terms', 'linkedin_url', 'github_url', 'additional_notes', 'created_at'
+        ]
+
+    def validate(self, data):
+        import re
+        # email uniqueness for interest form: allow duplicates but ensure format
+        # phone format: 10-12 digits only
+        phone = data.get('phone', '')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', phone)
+        if not re.match(r'^\d{10,12}$', digits_only):
+            raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
+
+        # graduation
+        gd = data.get('graduation_date')
+        if gd:
+            try:
+                data['graduation_date'] = datetime.strptime(gd, '%m/%Y').date()
+            except Exception:
+                raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
+
+        # opt
+        if data.get('visa_status') == 'F1-OPT':
+            if not data.get('opt_end_date'):
+                raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
+            try:
+                data['opt_end_date'] = datetime.strptime(data.get('opt_end_date'), '%m/%Y').date()
+            except Exception:
+                raise serializers.ValidationError({'opt_end_date': 'opt_end_date must be MM/YYYY'})
+
+        # resume validations
+        resume = data.get('resume_file')
+        if resume:
+            name = resume.name.lower()
+            if not (name.endswith('.pdf') or name.endswith('.docx')):
+                raise serializers.ValidationError({'resume_file': 'Resume must be a PDF or DOCX file.'})
+            if resume.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError({'resume_file': 'Resume must be 5MB or smaller.'})
+
+        # urls
+        url_validator = URLValidator()
+        for field in ('linkedin_url', 'github_url'):
+            val = data.get(field)
+            if val:
+                try:
+                    url_validator(val)
+                except ValidationError:
+                    raise serializers.ValidationError({field: 'Invalid URL'})
+
+        # ensure consent
+        if not data.get('consent_to_terms'):
+            raise serializers.ValidationError({'consent_to_terms': 'Consent to terms is required.'})
+
+        return data
