@@ -6,6 +6,7 @@ from django.db import models
 from users.models import Profile
 from django.db.models import JSONField
 from django.utils import timezone
+import uuid
 
 ONBOARDING_STEPS = [
     'profile',
@@ -16,6 +17,7 @@ ONBOARDING_STEPS = [
 ]
 
 class Onboarding(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     profile = models.OneToOneField(Profile, on_delete=models.CASCADE)
     current_step = models.CharField(max_length=50, default='profile')
     steps_completed = JSONField(default=list, blank=True)
@@ -37,7 +39,6 @@ class Onboarding(models.Model):
             # Audit log
             try:
                 from audit.utils import log_action
-                # use public_id for external references
-                log_action(actor=None, action='onboarding_completed', target=f'Profile:{str(self.profile.public_id)}', metadata={'steps': self.steps_completed})
+                log_action(actor=None, action='onboarding_completed', target=f'Profile:{str(self.profile.id)}', metadata={'steps': self.steps_completed})
             except Exception:
                 pass

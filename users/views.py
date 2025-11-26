@@ -25,7 +25,7 @@ class LoginView(TokenObtainPairView):
         return super().post(request, *args, **kwargs)
 from django.contrib.auth.models import User
 from .models import Profile
-from .serializers import UserSerializer, ProfileSerializer, RegistrationSerializer
+from .serializers import UserSerializer, ProfileSerializer, RegistrationSerializer, InterestSubmissionSerializer
 
 from .serializers import UserPublicSerializer
 
@@ -41,6 +41,7 @@ class ProfileRetrieveUpdateDestroy(generics.RetrieveUpdateDestroyAPIView):
     queryset = Profile.objects.select_related('user').all()
     serializer_class = ProfileSerializer
     lookup_field = 'public_id'
+    parser_classes = [MultiPartParser, FormParser]
 
 class RegistrationView(generics.GenericAPIView):
     serializer_class = RegistrationSerializer
@@ -61,3 +62,18 @@ class RegistrationView(generics.GenericAPIView):
             'profile_id': profile.id,
             'profile_public_id': str(profile.public_id)
         }, status=status.HTTP_201_CREATED)
+
+
+class InterestSubmissionCreateView(generics.CreateAPIView):
+    """Public interest form endpoint: accepts candidate interest submissions without creating a user account."""
+    serializer_class = InterestSubmissionSerializer
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [permissions.AllowAny]
+
+    @swagger_auto_schema(
+        operation_description="Submit candidate interest form",
+        request_body=InterestSubmissionSerializer,
+        responses={201: openapi.Response('Created')}
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
