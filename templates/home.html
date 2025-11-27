@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hyrind - Recruitment Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 32px;
+            font-weight: 700;
+            color: #667eea;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            font-size: 40px;
+        }
+
+        nav {
+            display: flex;
+            gap: 15px;
+        }
+
+        .nav-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+
+        .btn-admin {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-admin:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        /* Main Content */
+        .container {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 60px 20px;
+            width: 100%;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            color: white;
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .hero p {
+            font-size: 22px;
+            color: rgba(255, 255, 255, 0.95);
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+
+        /* Cards Section */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .card-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .card p {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+
+        .card-button {
+            display: inline-block;
+            padding: 14px 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .card-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px 0;
+            margin-top: auto;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            text-align: center;
+            color: #666;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .footer-link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .footer-link:hover {
+            color: #764ba2;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 18px;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .header-content {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            nav {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .nav-button {
+                width: 100%;
+                text-align: center;
+            }
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #28a745;
+            color: white;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <a href="/" class="logo">
+                <span class="logo-icon">🎯</span>
+                <span>Hyrind</span>
+            </a>
+            <nav>
+                <a href="/admin/" class="nav-button btn-admin">Admin Login</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="hero">
+            <h1>Welcome to Hyrind</h1>
+            <p>Your Complete Recruitment Management Platform</p>
+            <span class="status-badge">🟢 System Online</span>
+        </div>
+
+        <div class="cards">
+            <!-- Recruiter Registration Card -->
+            <div class="card">
+                <div class="card-icon">👔</div>
+                <h2>Recruiter Portal</h2>
+                <p>Join our network of professional recruiters. Register to access our platform and start managing candidates.</p>
+                <a href="/api/recruiters/register/" class="card-button" target="_blank" rel="noopener noreferrer">Register as Recruiter</a>
+            </div>
+
+            <!-- API Documentation Card -->
+            <div class="card">
+                <div class="card-icon">📚</div>
+                <h2>API Documentation</h2>
+                <p>Explore our comprehensive REST API documentation. Test endpoints and integrate with your systems.</p>
+                <a href="/swagger/" class="card-button" target="_blank" rel="noopener noreferrer">View API Docs</a>
+            </div>
+
+            <!-- Admin Panel Card -->
+            <div class="card">
+                <div class="card-icon">⚙️</div>
+                <h2>Admin Dashboard</h2>
+                <p>Access the administrative panel to manage users, recruiters, and system configurations.</p>
+                <a href="/admin/" class="card-button" target="_blank" rel="noopener noreferrer">Admin Panel</a>
+            </div>
+        </div>
+
+        <!-- Additional Features Section -->
+        <div class="cards" style="margin-top: 40px;">
+            <!-- Candidate Portal -->
+            <div class="card">
+                <div class="card-icon">👤</div>
+                <h2>Candidate Portal</h2>
+                <p>Register as a candidate, submit your interest, and track your application status.</p>
+                <a href="/api/users/register/" class="card-button" target="_blank" rel="noopener noreferrer">Register as Candidate</a>
+            </div>
+
+            <!-- Interest Form -->
+            <div class="card">
+                <div class="card-icon">📝</div>
+                <h2>Submit Interest</h2>
+                <p>Not ready to register? Submit your interest and our team will reach out to you.</p>
+                <a href="/api/users/interest/" class="card-button" target="_blank" rel="noopener noreferrer">Submit Interest</a>
+            </div>
+
+            <!-- Contact Us -->
+            <div class="card">
+                <div class="card-icon">📧</div>
+                <h2>Contact Us</h2>
+                <p>Have questions? Reach out to us and we'll get back to you within 24 hours.</p>
+                <a href="/api/users/contact/" class="card-button" target="_blank" rel="noopener noreferrer">Contact Us</a>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="/swagger/" class="footer-link">API Documentation</a>
+                <a href="/admin/" class="footer-link">Admin</a>
+                <a href="/api/users/register/" class="footer-link">Candidate Registration</a>
+                <a href="/api/recruiters/register/" class="footer-link">Recruiter Registration</a>
+            </div>
+            <p>&copy; 2025 Hyrind. All rights reserved.</p>
+            <p style="margin-top: 5px; font-size: 14px;">Powered by Django REST Framework</p>
+        </div>
+    </footer>
+</body>
+</html>

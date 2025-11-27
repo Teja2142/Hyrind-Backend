@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Profile, InterestSubmission
+from .models import Profile, InterestSubmission, Contact
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 import os
@@ -19,14 +19,15 @@ class UserPublicSerializer(serializers.ModelSerializer):
         fields = ('id', 'profile_id', 'email')  # Removed username
 
 class ProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)  # Make nested serializer read-only to avoid Swagger error
+    user = UserSerializer(read_only=True)  # nested user is read-only for responses
+    user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), write_only=True, source='user', required=False)
 
     class Meta:
         model = Profile
         fields = [
             'id', 'user', 'first_name', 'last_name', 'email', 'phone', 'university',
             'degree', 'major', 'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'consent_to_terms',
-            'referral_source', 'linkedin_url', 'github_url', 'additional_notes'
+            'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id'
         ]
 
     def validate(self, data):
@@ -39,22 +40,27 @@ class ProfileSerializer(serializers.ModelSerializer):
             if not re.match(r'^\d{10,12}$', digits_only):
                 raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
-        # graduation_date
+        # graduation_date: if provided but blank -> normalize to None; if provided as MM/YYYY string -> parse
         gd = data.get('graduation_date')
-        if gd and isinstance(gd, str):
+        if gd == '' or gd is None:
+            # allow clearing the date on update
+            data['graduation_date'] = None
+        elif isinstance(gd, str):
             try:
-                data['graduation_date'] = datetime.strptime(gd, '%m/%Y').date()
+                data['graduation_date'] = datetime.strptime(gd.strip(), '%m/%Y').date()
             except Exception:
                 raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
 
-        # opt_end_date
+        # opt_end_date: normalize blanks to None; require when F1-OPT
+        opt = data.get('opt_end_date')
+        if opt == '' or opt is None:
+            data['opt_end_date'] = None
         if data.get('visa_status') == 'F1-OPT':
-            opt = data.get('opt_end_date')
-            if not opt:
+            if not data.get('opt_end_date'):
                 raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
-            if isinstance(opt, str):
+            if isinstance(data['opt_end_date'], str):
                 try:
-                    data['opt_end_date'] = datetime.strptime(opt, '%m/%Y').date()
+                    data['opt_end_date'] = datetime.strptime(data['opt_end_date'].strip(), '%m/%Y').date()
                 except Exception:
                     raise serializers.ValidationError({'opt_end_date': 'opt_end_date must be MM/YYYY'})
 
@@ -126,22 +132,30 @@ class RegistrationSerializer(serializers.Serializer):
         if not re.match(r'^\d{10,12}$', digits_only):
             raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
-        # parse graduation_date (MM/YYYY)
+        # parse graduation_date (MM/YYYY) - must be present and non-empty
+        gd_raw = data.get('graduation_date')
+        if not gd_raw or (isinstance(gd_raw, str) and gd_raw.strip() == ''):
+            raise serializers.ValidationError({'graduation_date': 'Graduation date is required and must be MM/YYYY'})
         try:
-            datetime_obj = datetime.strptime(data['graduation_date'], '%m/%Y')
+            datetime_obj = datetime.strptime(gd_raw.strip(), '%m/%Y')
             data['graduation_date'] = datetime_obj.date()
         except Exception:
             raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
 
-        # opt_end_date required if F1-OPT
+        # opt_end_date required if F1-OPT. Convert empty to None when not required.
+        opt_raw = data.get('opt_end_date')
         if data.get('visa_status') == 'F1-OPT':
-            if not data.get('opt_end_date'):
+            if not opt_raw or (isinstance(opt_raw, str) and opt_raw.strip() == ''):
                 raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
             try:
-                dt_opt = datetime.strptime(data['opt_end_date'], '%m/%Y')
+                dt_opt = datetime.strptime(opt_raw.strip(), '%m/%Y')
                 data['opt_end_date'] = dt_opt.date()
             except Exception:
                 raise serializers.ValidationError({'opt_end_date': 'opt_end_date must be MM/YYYY'})
+        else:
+            # not required - normalize empty values to None
+            if opt_raw == '' or opt_raw is None:
+                data['opt_end_date'] = None
 
         # resume file type/size
         resume_file = data.get('resume_file')
@@ -185,7 +199,8 @@ class RegistrationSerializer(serializers.Serializer):
             degree=validated_data.get('degree', ''),
             major=validated_data.get('major', ''),
             visa_status=validated_data.get('visa_status', ''),
-            graduation_date=validated_data.get('graduation_date', None),
+            # ensure empty strings are not written to DateFields
+            graduation_date=validated_data.get('graduation_date', None) or None,
             resume_file=validated_data.get('resume_file', None),
             opt_end_date=validated_data.get('opt_end_date', None),
             consent_to_terms=validated_data['consent_to_terms'],
@@ -226,15 +241,20 @@ class InterestSubmissionSerializer(serializers.ModelSerializer):
         if not re.match(r'^\d{10,12}$', digits_only):
             raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
 
-        # graduation
+        # graduation_date: normalize empty -> None; parse MM/YYYY when provided
         gd = data.get('graduation_date')
-        if gd:
+        if gd == '' or gd is None:
+            data['graduation_date'] = None
+        elif isinstance(gd, str):
             try:
-                data['graduation_date'] = datetime.strptime(gd, '%m/%Y').date()
+                data['graduation_date'] = datetime.strptime(gd.strip(), '%m/%Y').date()
             except Exception:
                 raise serializers.ValidationError({'graduation_date': 'Graduation date must be MM/YYYY'})
 
-        # opt
+        # opt_end_date: normalize empty -> None; require when F1-OPT
+        opt = data.get('opt_end_date')
+        if opt == '' or opt is None:
+            data['opt_end_date'] = None
         if data.get('visa_status') == 'F1-OPT':
             if not data.get('opt_end_date'):
                 raise serializers.ValidationError({'opt_end_date': 'opt_end_date is required when visa_status is F1-OPT'})
@@ -266,4 +286,50 @@ class InterestSubmissionSerializer(serializers.ModelSerializer):
         if not data.get('consent_to_terms'):
             raise serializers.ValidationError({'consent_to_terms': 'Consent to terms is required.'})
 
+        return data
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Contact model - handles contact form submissions
+    """
+    class Meta:
+        model = Contact
+        fields = ['id', 'full_name', 'email', 'phone', 'message', 'created_at', 'responded']
+        read_only_fields = ['id', 'created_at', 'responded']
+
+    def validate(self, data):
+        import re
+        
+        # Validate full_name
+        full_name = data.get('full_name', '').strip()
+        if not full_name:
+            raise serializers.ValidationError({'full_name': 'Full name is required.'})
+        if len(full_name) < 2:
+            raise serializers.ValidationError({'full_name': 'Full name must be at least 2 characters.'})
+        
+        # Validate email format (handled by EmailField but adding custom message)
+        email = data.get('email', '')
+        if not email:
+            raise serializers.ValidationError({'email': 'Email is required.'})
+        
+        # Validate phone: 10-12 digits only
+        phone = data.get('phone', '')
+        if phone:
+            # Remove any non-digit characters for validation
+            digits_only = re.sub(r'\D', '', phone)
+            if not re.match(r'^\d{10,12}$', digits_only):
+                raise serializers.ValidationError({'phone': 'Phone must contain 10-12 digits only'})
+        else:
+            raise serializers.ValidationError({'phone': 'Phone number is required.'})
+        
+        # Validate message
+        message = data.get('message', '').strip()
+        if not message:
+            raise serializers.ValidationError({'message': 'Message is required.'})
+        if len(message) < 10:
+            raise serializers.ValidationError({'message': 'Message must be at least 10 characters.'})
+        if len(message) > 2000:
+            raise serializers.ValidationError({'message': 'Message must not exceed 2000 characters.'})
+        
         return data

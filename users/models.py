@@ -79,3 +79,21 @@ class InterestSubmission(models.Model):
 
     def __str__(self) -> str:
         return f"InterestSubmission({self.email})"
+
+
+class Contact(models.Model):
+    """Model for storing contact form submissions"""
+    full_name = models.CharField(max_length=100, help_text="Full name of the person contacting")
+    email = models.EmailField(help_text="Email address for response")
+    phone = models.CharField(max_length=20, help_text="Contact phone number")
+    message = models.TextField(max_length=2000, help_text="Message content")
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded = models.BooleanField(default=False, help_text="Has this contact been responded to?")
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Contact Submission'
+        verbose_name_plural = 'Contact Submissions'
+    
+    def __str__(self):
+        return f"Contact from {self.full_name} ({self.email}) - {self.created_at.strftime('%Y-%m-%d')}"
