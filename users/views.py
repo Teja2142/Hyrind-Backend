@@ -4,7 +4,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAdminUser
 
 
 class LoginView(TokenObtainPairView):
@@ -40,10 +40,12 @@ from .serializers import UserPublicSerializer
 class UserList(generics.ListAPIView):
     queryset = User.objects.all()
     serializer_class = UserPublicSerializer
+    permission_classes = [IsAdminUser]
 
 class ProfileList(generics.ListCreateAPIView):
     queryset = Profile.objects.select_related('user').all()
     serializer_class = ProfileSerializer
+    permission_classes = [IsAdminUser]
     
     # Override to prevent Swagger from trying to generate form params from nested serializer
     def get_serializer_class(self):
