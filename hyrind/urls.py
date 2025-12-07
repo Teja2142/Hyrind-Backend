@@ -13,6 +13,7 @@ from drf_yasg import openapi
 
 from django.conf import settings
 from django.conf.urls.static import static
+from django.urls import include
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -38,6 +39,8 @@ urlpatterns = [
     path('api/onboarding/', include('onboarding.urls')),
     path('api/subscriptions/', include('subscriptions.urls')),
     path('api/recruiters/', include('recruiters.urls')),
+    # Web (template) pages for recruiter registration and profile
+    path('recruiter-registration/', include('recruiters.web_urls')),
     
     # Authentication
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
