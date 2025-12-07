@@ -1,216 +1,327 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Recruiter Registration — Hyrind</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <style>
-            body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:40px 0}
-            .card{border-radius:12px}
-            .section-title{font-size:1.05rem;font-weight:600;margin-bottom:12px}
-        </style>
-        {% load static %}
-    </head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recruiter Registration - Hyrind</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .registration-card {
+            max-width: 900px;
+            margin: 0 auto;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 16px 16px 0 0 !important;
+            padding: 30px;
+        }
+        .card-header h2 {
+            margin: 0;
+            font-weight: 600;
+        }
+        .card-header p {
+            margin: 10px 0 0;
+            opacity: 0.9;
+        }
+        .form-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border-left: 4px solid #667eea;
+        }
+        .form-section h5 {
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-size: 1.25rem;
+        }
+        .form-section h5 i {
+            margin-right: 12px;
+            font-size: 1.5rem;
+        }
+        .form-label {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            padding: 12px 15px;
+            font-size: 0.95rem;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        }
+        .text-danger {
+            font-size: 0.875rem;
+            margin-top: 5px;
+            display: block;
+        }
+        .btn-register {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        .btn-register:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102,126,234,0.4);
+            color: white;
+        }
+        .help-text {
+            font-size: 0.85rem;
+            color: #718096;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        .required {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .alert {
+            border-radius: 8px;
+            border: none;
+        }
+        .info-badge {
+            background: #e0e7ff;
+            color: #4c51bf;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            border-left: 4px solid #4c51bf;
+        }
+        .info-badge i {
+            margin-right: 8px;
+        }
+    </style>
+</head>
 <body>
     <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-xl-10">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h2 class="mb-0">Recruiter Registration</h2>
-                            <a href="/" class="btn btn-outline-secondary">Home</a>
-                        </div>
-
-                        {% if messages %}
-                            {% for message in messages %}
-                                <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-                            {% endfor %}
-                        {% endif %}
-
-                        <form method="post" enctype="multipart/form-data" novalidate>
-                            {% csrf_token %}
-                            <!-- Personal & Contact -->
-                            <h4 class="mb-3">Personal & Contact</h4>
-                            <div class="mb-3">
-                                <label class="form-label">Full name <span class="text-danger">*</span></label>
-                                {{ form.full_name }}
-                                {% for e in form.full_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Email <span class="text-danger">*</span></label>
-                                    {{ form.email }}
-                                    {% for e in form.email.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Phone number <span class="text-danger">*</span></label>
-                                    {{ form.phone_number }}
-                                    {% for e in form.phone_number.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Whatsapp number</label>
-                                    {{ form.whatsapp_number }}
-                                    {% for e in form.whatsapp_number.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                                </div>
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label">Date of joining <span class="text-danger">*</span></label>
-                                    {{ form.date_of_joining }}
-                                </div>
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label">Date of birth <span class="text-danger">*</span></label>
-                                    {{ form.date_of_birth }}
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-4 mb-3">
-                                    <label class="form-label">Gender <span class="text-danger">*</span></label>
-                                    {{ form.gender }}
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <label class="form-label">Marital status <span class="text-danger">*</span></label>
-                                    {{ form.marital_status }}
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <label class="form-label">Blood group <span class="text-danger">*</span></label>
-                                    {{ form.blood_group }}
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Father name <span class="text-danger">*</span></label>
-                                    {{ form.father_name }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Mother name</label>
-                                    {{ form.mother_name }}
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Spouse name</label>
-                                {{ form.spouse_name }}
-                            </div>
-
-                            <!-- Address & IDs -->
-                            <h4 class="mt-4 mb-3">Address & Identity Documents</h4>
-                            <div class="mb-3">
-                                <label class="form-label">Permanent address <span class="text-danger">*</span></label>
-                                {{ form.permanent_address }}
-                                {% for e in form.permanent_address.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                            </div>
-                            <div class="form-check mb-3">
-                                {{ form.same_as_permanent_address }} <label class="form-check-label ms-2">Same as permanent address</label>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Correspondence address</label>
-                                {{ form.correspondence_address }}
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Aadhaar number <span class="text-danger">*</span></label>
-                                    {{ form.aadhaar_number }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Aadhaar card file</label>
-                                    {{ form.aadhaar_card_file }}
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Pan number <span class="text-danger">*</span></label>
-                                    {{ form.pan_number }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Pan card file</label>
-                                    {{ form.pan_card_file }}
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Passport number</label>
-                                    {{ form.passport_number }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Passport copy file</label>
-                                    {{ form.passport_copy_file }}
-                                </div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Address proof file</label>
-                                {{ form.address_proof_file }}
-                            </div>
-
-                            <!-- Education -->
-                            <h4 class="mt-4 mb-3">Education</h4>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Highest education <span class="text-danger">*</span></label>
-                                    {{ form.highest_education }}
-                                </div>
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label">Year of graduation <span class="text-danger">*</span></label>
-                                    {{ form.year_of_graduation }}
-                                </div>
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label">Course <span class="text-danger">*</span></label>
-                                    {{ form.course }}
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Degree certificate file</label>
-                                {{ form.degree_certificate_file }}
-                            </div>
-
-                            <!-- Bank Details -->
-                            <h4 class="mt-4 mb-3">Bank Details</h4>
-                            <div class="mb-3">
-                                <label class="form-label">Bank name <span class="text-danger">*</span></label>
-                                {{ form.bank_name }}
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Account holder name <span class="text-danger">*</span></label>
-                                {{ form.account_holder_name }}
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Bank account number <span class="text-danger">*</span></label>
-                                    {{ form.bank_account_number }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Confirm Bank Account Number <span class="text-danger">*</span></label>
-                                    {{ form.confirm_bank_account_number }}
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">IFSC code <span class="text-danger">*</span></label>
-                                    {{ form.ifsc_code }}
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Branch name <span class="text-danger">*</span></label>
-                                    {{ form.branch_name }}
-                                </div>
-                            </div>
-
-                            <div class="d-flex justify-content-end mt-4">
-                                <button type="submit" class="btn btn-primary">Submit Registration</button>
-                            </div>
-                        </form>
+        <div class="card registration-card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2><i class="fas fa-user-tie"></i> Internal Recruiter Registration</h2>
+                        <p>Join Hyrind's Internal IT Recruitment Team</p>
                     </div>
+                    <a href="/" class="btn btn-light btn-sm">
+                        <i class="fas fa-home"></i> Home
+                    </a>
                 </div>
             </div>
+            
+            <div class="card-body p-4">
+                <!-- Info Badge -->
+                <div class="info-badge">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Registration Process:</strong> Fill out all required fields below. After submission, your account will be marked as 
+                    <strong>"Pending"</strong> and requires admin approval before you can login.
+                </div>
+
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            {{ message|safe }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    
+                    <!-- SECTION 1: Account Credentials -->
+                    <div class="form-section">
+                        <h5><i class="fas fa-lock"></i> Account Credentials</h5>
+                        <div class="row">
+                            <div class="col-12 mb-3">
+                                <label for="id_email" class="form-label">
+                                    Email Address <span class="required">*</span>
+                                </label>
+                                {{ form.email }}
+                                {% if form.email.errors %}
+                                    {% for error in form.email.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">Use your company email (e.g., john.doe@hyrind.com)</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="id_password" class="form-label">
+                                    Password <span class="required">*</span>
+                                </label>
+                                {{ form.password }}
+                                {% if form.password.errors %}
+                                    {% for error in form.password.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">Minimum 8 characters, include letters and numbers</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="id_confirm_password" class="form-label">
+                                    Confirm Password <span class="required">*</span>
+                                </label>
+                                {{ form.confirm_password }}
+                                {% if form.confirm_password.errors %}
+                                    {% for error in form.confirm_password.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: Personal Information -->
+                    <div class="form-section">
+                        <h5><i class="fas fa-user"></i> Personal Information</h5>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="id_first_name" class="form-label">
+                                    First Name <span class="required">*</span>
+                                </label>
+                                {{ form.first_name }}
+                                {% if form.first_name.errors %}
+                                    {% for error in form.first_name.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="id_last_name" class="form-label">
+                                    Last Name <span class="required">*</span>
+                                </label>
+                                {{ form.last_name }}
+                                {% if form.last_name.errors %}
+                                    {% for error in form.last_name.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            <div class="col-12 mb-3">
+                                <label for="id_phone" class="form-label">
+                                    Phone Number <span class="required">*</span>
+                                </label>
+                                {{ form.phone }}
+                                {% if form.phone.errors %}
+                                    {% for error in form.phone.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">10-12 digits only (no spaces or special characters)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: Employment Information -->
+                    <div class="form-section">
+                        <h5><i class="fas fa-briefcase"></i> Employment Information</h5>
+                        <p class="text-muted small mb-3">
+                            <i class="fas fa-info-circle"></i> Your Employee ID will be auto-generated (format: H#####)
+                        </p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="id_date_of_joining" class="form-label">
+                                    Date of Joining <span class="required">*</span>
+                                </label>
+                                {{ form.date_of_joining }}
+                                {% if form.date_of_joining.errors %}
+                                    {% for error in form.date_of_joining.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">Your employment start date</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="id_department" class="form-label">
+                                    Department <span class="required">*</span>
+                                </label>
+                                {{ form.department }}
+                                {% if form.department.errors %}
+                                    {% for error in form.department.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">Your assigned department</div>
+                            </div>
+                            <div class="col-md-12 mb-3">
+                                <label for="id_specialization" class="form-label">
+                                    Specialization <span class="required">*</span>
+                                </label>
+                                {{ form.specialization }}
+                                {% if form.specialization.errors %}
+                                    {% for error in form.specialization.errors %}
+                                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                    {% endfor %}
+                                {% endif %}
+                                <div class="help-text">Your primary area of expertise</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 4: Optional Information -->
+                    <div class="form-section">
+                        <h5><i class="fas fa-info-circle"></i> Optional Information</h5>
+                        <div class="mb-3">
+                            <label for="id_linkedin_url" class="form-label">LinkedIn Profile URL</label>
+                            {{ form.linkedin_url }}
+                            {% if form.linkedin_url.errors %}
+                                {% for error in form.linkedin_url.errors %}
+                                    <span class="text-danger"><i class="fas fa-exclamation-circle"></i> {{ error }}</span>
+                                {% endfor %}
+                            {% endif %}
+                            <div class="help-text">Your LinkedIn profile (e.g., https://linkedin.com/in/yourname)</div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-register">
+                            <i class="fas fa-user-plus"></i> Register as Internal Recruiter
+                        </button>
+                    </div>
+
+                    <!-- Login Link -->
+                    <div class="text-center mt-4">
+                        <p class="text-muted mb-0">
+                            Already have an account? 
+                            <a href="/recruiter-registration/login/" class="fw-bold" style="color: #667eea; text-decoration: none;">
+                                Login Here <i class="fas fa-arrow-right"></i>
+                            </a>
+                        </p>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="text-center mt-4">
+            <p class="text-white mb-0">
+                <small>&copy; 2025 Hyrind Recruitment Services. All rights reserved.</small>
+            </p>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

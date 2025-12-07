@@ -1,44 +1,47 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
 
-from .forms import RecruiterRegistrationFormModel, RecruiterRegistrationForm, RecruiterUpdateForm
+from .forms import RecruiterMinimalRegistrationForm, RecruiterProfileUpdateForm, RecruiterBasicUpdateForm
 from users.models import Profile
-from .models import Recruiter
+from .models import Recruiter, RecruiterRegistration, Assignment
 
 
-def recruiter_registration_form_view(request):
-    """Render and process the recruiter registration template form."""
+def recruiter_registration_view(request):
+    """
+    Minimal registration for internal IT recruitment staff.
+    
+    Creates User + Profile + Recruiter with:
+    - AUTO-GENERATED Employee ID (H + 5 digits)
+    - Basic info: email, name, phone, department, specialization, date of joining
+    - Account status set to 'pending' (requires admin approval)
+    - Profile completion required after login
+    """
     if request.method == 'POST':
-        form = RecruiterRegistrationFormModel(request.POST, request.FILES)
-        if form.is_valid():
-            registration = form.save()
-            messages.success(request, 'Registration submitted successfully. We will verify and contact you soon.')
-            return redirect('home')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = RecruiterRegistrationFormModel()
-
-    return render(request, 'recruiter_registration_form.html', {'form': form})
-
-
-def recruiter_register_simple_view(request):
-    """Simple user/recruiter account registration (creates User/Profile/Recruiter)."""
-    if request.method == 'POST':
-        form = RecruiterRegistrationForm(request.POST)
+        form = RecruiterMinimalRegistrationForm(request.POST)
         if form.is_valid():
             recruiter = form.save()
-            messages.success(request, 'Account created. Please wait for admin approval to activate your recruiter account.')
+            messages.success(
+                request,
+                f'✅ Registration Successful!<br>'
+                f'Your Employee ID: <strong>{recruiter.employee_id}</strong><br>'
+                f'Department: {recruiter.get_department_display()}<br>'
+                f'Specialization: {recruiter.get_specialization_display()}<br><br>'
+                f'<strong>Important:</strong> Your account is pending admin approval. '
+                f'After approval, please complete your profile with additional details.'
+            )
             return redirect('recruiter-login')
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
-        form = RecruiterRegistrationForm()
+        form = RecruiterMinimalRegistrationForm()
 
-    return render(request, 'recruiter_register_simple.html', {'form': form})
+    return render(request, 'recruiter_registration_form.html', {
+        'form': form,
+        'page_title': 'Recruiter Registration - Hyrind'
+    })
 
 
 def recruiter_login_view(request):
@@ -68,7 +71,7 @@ def recruiter_login_view(request):
 
             login(request, user_auth)
             messages.success(request, 'Logged in successfully')
-            return redirect('recruiter-profile')
+            return redirect('recruiter-dashboard')
         else:
             messages.error(request, 'Invalid credentials')
 
@@ -77,7 +80,7 @@ def recruiter_login_view(request):
 
 @login_required
 def recruiter_profile_view(request):
-    """Allow logged-in recruiter to view and update their recruiter profile."""
+    """Allow logged-in recruiter to update basic info."""
     try:
         profile = Profile.objects.get(user=request.user)
         recruiter = Recruiter.objects.get(user=profile)
@@ -86,7 +89,7 @@ def recruiter_profile_view(request):
         return redirect('home')
 
     if request.method == 'POST':
-        form = RecruiterUpdateForm(request.POST, instance=recruiter)
+        form = RecruiterBasicUpdateForm(request.POST, instance=recruiter)
         if form.is_valid():
             form.save()
             messages.success(request, 'Profile updated successfully')
@@ -94,9 +97,48 @@ def recruiter_profile_view(request):
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
-        form = RecruiterUpdateForm(instance=recruiter)
+        form = RecruiterBasicUpdateForm(instance=recruiter)
 
     return render(request, 'recruiter_profile.html', {'form': form, 'recruiter': recruiter})
+
+
+@login_required
+def recruiter_complete_profile_view(request):
+    """
+    Comprehensive profile completion form.
+    Collects personal details, address, ID proofs, education, bank details.
+    """
+    try:
+        profile = Profile.objects.get(user=request.user)
+        recruiter = Recruiter.objects.get(user=profile)
+    except (Profile.DoesNotExist, Recruiter.DoesNotExist):
+        messages.error(request, 'Recruiter profile not found.')
+        return redirect('home')
+    
+    # Get or create RecruiterRegistration instance
+    try:
+        reg = RecruiterRegistration.objects.get(email=recruiter.email)
+    except RecruiterRegistration.DoesNotExist:
+        reg = None
+    
+    if request.method == 'POST':
+        form = RecruiterProfileUpdateForm(request.POST, request.FILES, instance=reg, recruiter=recruiter)
+        if form.is_valid():
+            registration = form.save(commit=False)
+            registration.is_verified = True
+            registration.save()
+            messages.success(request, '✅ Profile completed successfully!')
+            return redirect('recruiter-dashboard')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = RecruiterProfileUpdateForm(instance=reg, recruiter=recruiter)
+    
+    return render(request, 'recruiter_complete_profile.html', {
+        'form': form,
+        'recruiter': recruiter,
+        'page_title': 'Complete Your Profile'
+    })
 
 
 def recruiter_logout_view(request):
@@ -107,7 +149,13 @@ def recruiter_logout_view(request):
 
 @login_required
 def recruiter_dashboard_view(request):
-    """Simple recruiter dashboard showing assignments and quick stats."""
+    """
+    Enhanced recruiter dashboard showing:
+    - Profile completion status
+    - Assigned clients
+    - Performance stats
+    - Quick actions
+    """
     try:
         profile = Profile.objects.get(user=request.user)
         recruiter = Recruiter.objects.get(user=profile)
@@ -115,16 +163,32 @@ def recruiter_dashboard_view(request):
         messages.error(request, 'Recruiter profile not found for your account.')
         return redirect('home')
 
-    # Import here to avoid circular imports at module load
-    from .models import Assignment
-    assignments = Assignment.objects.filter(recruiter=recruiter)
-
+    # Check profile completion
+    try:
+        registration = RecruiterRegistration.objects.get(email=recruiter.email)
+        profile_complete = registration.is_verified
+    except RecruiterRegistration.DoesNotExist:
+        profile_complete = False
+        registration = None
+    
+    # Get assigned clients
+    assignments = Assignment.objects.filter(recruiter=recruiter).select_related('profile')
+    active_assignments = assignments.filter(status='active')
+    placed_assignments = assignments.filter(status='placed')
+    
+    # Calculate stats
     stats = {
-        'total_assignments': assignments.count(),
+        'total_clients': recruiter.current_clients_count,
+        'available_slots': recruiter.get_available_slots(),
+        'total_placements': recruiter.total_placements,
+        'active_applications': recruiter.active_applications,
+        'profile_complete': profile_complete,
     }
 
     return render(request, 'recruiter_dashboard.html', {
         'recruiter': recruiter,
-        'assignments': assignments,
+        'assignments': active_assignments,
+        'placed_assignments': placed_assignments,
         'stats': stats,
+        'profile_complete': profile_complete,
     })

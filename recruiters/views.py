@@ -7,11 +7,13 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import render
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import Recruiter, Assignment, RecruiterRegistration
 from .serializers import (
     RecruiterSerializer,
+    RecruiterDashboardSerializer,
     RecruiterLoginSerializer,
     RecruiterRegistrationSerializer,
     RecruiterUpdateSerializer,
@@ -19,7 +21,7 @@ from .serializers import (
     RecruiterAdminUpdateSerializer,
     AssignmentSerializer,
     RecruiterRegistrationFormSerializer,
-    RecruiterRegistrationListSerializer
+    RecruiterRegistrationFormListSerializer
 )
 from users.models import Profile
 from onboarding.models import Onboarding
@@ -92,29 +94,25 @@ class RecruiterLoginView(generics.GenericAPIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Generate tokens
+            # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             
-            # Log the login
-            try:
-                from audit.utils import log_action
-                log_action(
-                    actor=user,
-                    action='recruiter_login',
-                    target=f'Recruiter:{recruiter.id}',
-                    metadata={'email': email}
-                )
-            except Exception:
-                pass
+            # Update last login
+            recruiter.last_login = timezone.now()
+            recruiter.save(update_fields=['last_login'])
             
             return Response({
-                'message': 'Login successful',
-                'recruiter_id': str(recruiter.id),
-                'name': recruiter.name,
-                'email': recruiter.email,
-                'company_name': recruiter.company_name,
                 'access': str(refresh.access_token),
-                'refresh': str(refresh)
+                'refresh': str(refresh),
+                'user': {
+                    'id': str(recruiter.id),
+                    'employee_id': recruiter.employee_id,
+                    'name': recruiter.name,
+                    'email': recruiter.email,
+                    'department': recruiter.get_department_display(),
+                    'specialization': recruiter.get_specialization_display(),
+                    'status': recruiter.status
+                }
             }, status=status.HTTP_200_OK)
         
         except User.DoesNotExist:
@@ -134,20 +132,23 @@ class RecruiterRegistrationView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     
     @swagger_auto_schema(
-        operation_description="Register a new recruiter account (requires admin approval to activate)",
+        operation_description="Register a new internal recruiter account (requires admin approval before activation)",
         operation_summary="Recruiter Registration",
         request_body=RecruiterRegistrationSerializer,
         responses={
             201: openapi.Response(
-                description="Recruiter created successfully",
+                description="Recruiter account created successfully",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING),
-                        'recruiter_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                        'email': openapi.Schema(type=openapi.TYPE_STRING),
+                        'id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
+                        'employee_id': openapi.Schema(type=openapi.TYPE_STRING),
                         'name': openapi.Schema(type=openapi.TYPE_STRING),
+                        'email': openapi.Schema(type=openapi.TYPE_STRING),
+                        'department': openapi.Schema(type=openapi.TYPE_STRING),
+                        'specialization': openapi.Schema(type=openapi.TYPE_STRING),
                         'status': openapi.Schema(type=openapi.TYPE_STRING),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
                     }
                 )
             ),
@@ -161,11 +162,14 @@ class RecruiterRegistrationView(generics.CreateAPIView):
         recruiter = serializer.save()
         
         return Response({
-            'message': 'Recruiter registered successfully. Please wait for admin approval.',
-            'recruiter_id': str(recruiter.id),
-            'email': recruiter.email,
+            'id': str(recruiter.id),
+            'employee_id': recruiter.employee_id,
             'name': recruiter.name,
-            'status': 'pending_approval'
+            'email': recruiter.email,
+            'department': recruiter.get_department_display(),
+            'specialization': recruiter.get_specialization_display(),
+            'status': recruiter.status,
+            'message': 'Registration successful. Your account is pending admin approval.'
         }, status=status.HTTP_201_CREATED)
 
 
@@ -240,6 +244,36 @@ class RecruiterMeView(generics.RetrieveUpdateAPIView):
     def put(self, request, *args, **kwargs):
         """Full update - same as PATCH for recruiter profile"""
         return self.patch(request, *args, **kwargs)
+
+
+class RecruiterDashboardView(generics.RetrieveAPIView):
+    """
+    Recruiter dashboard endpoint with stats and assigned clients.
+    Returns comprehensive dashboard data for authenticated recruiter.
+    """
+    serializer_class = RecruiterDashboardSerializer
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_description="Get recruiter dashboard with stats and assigned clients",
+        operation_summary="Recruiter Dashboard",
+        responses={
+            200: RecruiterDashboardSerializer,
+            404: "Recruiter not found"
+        },
+        tags=['Recruiters - Dashboard']
+    )
+    def get(self, request, *args, **kwargs):
+        try:
+            profile = Profile.objects.get(user=request.user)
+            recruiter = Recruiter.objects.get(user=profile)
+            serializer = self.get_serializer(recruiter)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except (Profile.DoesNotExist, Recruiter.DoesNotExist):
+            return Response(
+                {'detail': 'Recruiter profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 # ============================================================================
@@ -596,7 +630,7 @@ class RecruiterRegistrationFormListView(generics.ListAPIView):
     Admin only - returns all registrations with filtering options.
     """
     queryset = RecruiterRegistration.objects.all()
-    serializer_class = RecruiterRegistrationListSerializer
+    serializer_class = RecruiterRegistrationFormListSerializer
     permission_classes = [IsAdminUser]
     
     @swagger_auto_schema(
@@ -619,7 +653,7 @@ class RecruiterRegistrationFormListView(generics.ListAPIView):
             ),
         ],
         responses={
-            200: RecruiterRegistrationListSerializer(many=True),
+            200: RecruiterRegistrationFormListSerializer(many=True),
             403: "Forbidden - Admin access required"
         },
         tags=['Recruiter Registration Form']
