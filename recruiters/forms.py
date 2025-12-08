@@ -155,6 +155,9 @@ class RecruiterMinimalRegistrationForm(forms.Form):
             first_name=data['first_name'],
             last_name=data['last_name']
         )
+        # New recruiter accounts require admin approval; keep underlying User inactive
+        user.is_active = False
+        user.save(update_fields=['is_active'])
         
         # Create Profile
         profile = Profile.objects.create(
@@ -165,6 +168,9 @@ class RecruiterMinimalRegistrationForm(forms.Form):
             phone=data['phone'],
             linkedin_url=data.get('linkedin_url', '')
         )
+        # reflect inactive state on profile
+        profile.active = False
+        profile.save(update_fields=['active'])
         
         # Create Recruiter with auto-generated employee ID
         recruiter_name = f"{data['first_name']} {data['last_name']}"

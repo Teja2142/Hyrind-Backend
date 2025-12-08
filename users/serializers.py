@@ -189,6 +189,9 @@ class RegistrationSerializer(serializers.Serializer):
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', '')
         )
+        # Newly registered users should be inactive until approved by admin
+        user.is_active = False
+        user.save(update_fields=['is_active'])
         profile = Profile.objects.create(
             user=user,
             first_name=validated_data.get('first_name', ''),
@@ -207,7 +210,8 @@ class RegistrationSerializer(serializers.Serializer):
             referral_source=validated_data.get('referral_source', None),
             linkedin_url=validated_data.get('linkedin_url', None),
             github_url=validated_data.get('github_url', None),
-            additional_notes=validated_data.get('additional_notes', None)
+            additional_notes=validated_data.get('additional_notes', None),
+            active=False,
         )
         try:
             from audit.utils import log_action

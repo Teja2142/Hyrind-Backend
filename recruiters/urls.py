@@ -9,7 +9,7 @@ urlpatterns = [
     path('register/', views.RecruiterRegistrationView.as_view(), name='recruiter-api-register'),
     path('login/', views.RecruiterLoginView.as_view(), name='recruiter-api-login'),
     path('me/', views.RecruiterMeView.as_view(), name='recruiter-me'),
-    path('dashboard/', views.RecruiterDashboardView.as_view(), name='recruiter-dashboard'),
+    path('dashboard/', views.RecruiterDashboardView.as_view(), name='recruiter-api-dashboard'),
     
     # ============================================================================
     # ADMIN MANAGEMENT - Admin only endpoints

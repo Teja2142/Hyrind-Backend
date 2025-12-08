@@ -14,7 +14,7 @@ urlpatterns = [
     path('contact/', views.ContactCreateView.as_view(), name='contact-submit'),
     
     # Authentication
-    path('login/', LoginView.as_view(), name='token_obtain_pair'),
+    path('login/', LoginView.as_view(), name='user-login'),
     
     # Admin Endpoints
     path('admin/profile/', views.AdminProfileView.as_view(), name='admin-profile'),

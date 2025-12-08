@@ -164,6 +164,9 @@ class RecruiterRegistrationSerializer(serializers.Serializer):
                 first_name=validated_data['first_name'],
                 last_name=validated_data['last_name']
             )
+            # Keep account inactive until admin activation
+            user.is_active = False
+            user.save(update_fields=['is_active'])
             
             # Create Profile
             profile = Profile.objects.create(

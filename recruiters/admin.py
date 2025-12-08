@@ -12,13 +12,55 @@ class RecruiterAdmin(admin.ModelAdmin):
     actions = ['activate_recruiters', 'deactivate_recruiters', 'export_selected']
 
     def activate_recruiters(self, request, queryset):
-        updated = queryset.update(active=True)
-        self.message_user(request, f"Activated {updated} recruiters")
+        activated = 0
+        for r in queryset:
+            try:
+                # enable recruiter record
+                r.active = True
+                r.status = 'active'
+                r.save(update_fields=['active', 'status'])
+                # enable underlying user/profile
+                profile = r.user
+                try:
+                    django_user = profile.user
+                    django_user.is_active = True
+                    django_user.save(update_fields=['is_active'])
+                except Exception:
+                    pass
+                try:
+                    profile.active = True
+                    profile.save(update_fields=['active'])
+                except Exception:
+                    pass
+                activated += 1
+            except Exception:
+                continue
+        self.message_user(request, f"Activated {activated} recruiters")
     activate_recruiters.short_description = 'Activate selected recruiters'
 
     def deactivate_recruiters(self, request, queryset):
-        updated = queryset.update(active=False)
-        self.message_user(request, f"Deactivated {updated} recruiters")
+        deactivated = 0
+        for r in queryset:
+            try:
+                r.active = False
+                r.status = 'inactive'
+                r.save(update_fields=['active', 'status'])
+                profile = r.user
+                try:
+                    django_user = profile.user
+                    django_user.is_active = False
+                    django_user.save(update_fields=['is_active'])
+                except Exception:
+                    pass
+                try:
+                    profile.active = False
+                    profile.save(update_fields=['active'])
+                except Exception:
+                    pass
+                deactivated += 1
+            except Exception:
+                continue
+        self.message_user(request, f"Deactivated {deactivated} recruiters")
     deactivate_recruiters.short_description = 'Deactivate selected recruiters'
 
     def export_selected(self, request, queryset):
@@ -69,6 +111,9 @@ class RecruiterRegistrationAdmin(admin.ModelAdmin):
                             first_name=(reg.full_name.split(' ')[0] if reg.full_name else ''),
                             last_name=(' '.join(reg.full_name.split(' ')[1:]) if reg.full_name and len(reg.full_name.split(' '))>1 else '')
                         )
+                        # keep the account inactive until admin explicitly activates
+                        user.is_active = False
+                        user.save(update_fields=['is_active'])
                     else:
                         user = UserModel.objects.filter(email=reg.email).first()
 
@@ -86,7 +131,7 @@ class RecruiterRegistrationAdmin(admin.ModelAdmin):
                             name=reg.full_name,
                             email=reg.email,
                             phone=reg.phone_number,
-                            active=True,
+                            active=False,
                         )
 
                     # send informational email (if email configured)

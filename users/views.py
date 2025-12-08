@@ -5,6 +5,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
 
 
 class LoginView(TokenObtainPairView):
@@ -29,6 +31,46 @@ class LoginView(TokenObtainPairView):
             # Create a mutable copy of request.data
             data = request.data.copy()
             data['username'] = email  # Use email as username for authentication
+            request._full_data = data
+        return super().post(request, *args, **kwargs)
+
+
+class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Extend TokenObtainPairSerializer to restrict token issuance to admin users only."""
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        user = self.user
+        if not (user.is_staff or user.is_superuser):
+            raise serializers.ValidationError({
+                'detail': 'Admin credentials required.'
+            })
+        return data
+
+
+class AdminLoginView(TokenObtainPairView):
+    """API endpoint to obtain JWT for admin users only."""
+    permission_classes = [AllowAny]
+    serializer_class = AdminTokenObtainPairSerializer
+
+    @swagger_auto_schema(
+        operation_description="Obtain admin JWT token using email/username and password",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['username', 'password'],
+            properties={
+                'username': openapi.Schema(type=openapi.TYPE_STRING, description='Admin username or email'),
+                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Password')
+            }
+        ),
+        responses={200: openapi.Response('Token pair with access and refresh tokens')}
+    )
+    def post(self, request, *args, **kwargs):
+        # Support email in `username` field similar to LoginView
+        email = request.data.get('email')
+        if email and not request.data.get('username'):
+            data = request.data.copy()
+            data['username'] = email
             request._full_data = data
         return super().post(request, *args, **kwargs)
 from django.contrib.auth.models import User
@@ -763,18 +805,17 @@ class CandidateActivateView(generics.GenericAPIView):
         """Activate a candidate"""
         try:
             profile = Profile.objects.get(id=id)
-            # Add active field to Profile if it doesn't exist
-            # For now, we'll just update the profile to ensure it's complete
-            if not hasattr(profile, 'active'):
-                # If Profile doesn't have active field, just return success
-                serializer = self.get_serializer(profile)
-                return Response({
-                    'message': 'Candidate activated successfully',
-                    'profile': serializer.data
-                }, status=status.HTTP_200_OK)
-            
-            profile.active = True
-            profile.save()
+        # Prefer toggling the underlying Django User.is_active flag
+            try:
+                user = profile.user
+                user.is_active = True
+                user.save(update_fields=['is_active'])
+                # mirror on profile for clarity in admin UI
+                profile.active = True
+                profile.save(update_fields=['active'])
+            except Exception:
+                # If no linked User, continue and respond
+                pass
             
             # Log the activation
             try:
@@ -825,9 +866,20 @@ class CandidateDeactivateView(generics.GenericAPIView):
         try:
             profile = Profile.objects.get(id=id)
             
-            if hasattr(profile, 'active'):
+            # Toggle underlying Django User.is_active to prevent login
+                # Toggle underlying Django User.is_active to prevent login
+            try:
+                user = profile.user
+                user.is_active = False
+                user.save(update_fields=['is_active'])
+            except Exception:
+                pass
+            # Mirror on profile
+            try:
                 profile.active = False
-                profile.save()
+                profile.save(update_fields=['active'])
+            except Exception:
+                pass
                 
                 # Log the deactivation
                 try:

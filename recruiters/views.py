@@ -436,6 +436,7 @@ class RecruiterActivateView(generics.GenericAPIView):
     queryset = Recruiter.objects.all()
     lookup_field = 'id'
     permission_classes = [IsAdminUser]
+    serializer_class = RecruiterSerializer
     
     @swagger_auto_schema(
         operation_description="Activate (approve) a recruiter account by UUID (admin only)",
@@ -451,7 +452,23 @@ class RecruiterActivateView(generics.GenericAPIView):
         """Activate a recruiter"""
         recruiter = self.get_object()
         recruiter.active = True
-        recruiter.save()
+        # Also enable the underlying Django user and profile so they can log in
+        try:
+            profile = recruiter.user
+            django_user = profile.user
+            django_user.is_active = True
+            django_user.save(update_fields=['is_active'])
+            # mirror on profile
+            profile.active = True
+            profile.save(update_fields=['active'])
+        except Exception:
+            # If associated User/Profile can't be found, continue and rely on recruiter.active
+            pass
+
+        # mark status appropriately
+        recruiter.status = 'active'
+        recruiter.active = True
+        recruiter.save(update_fields=['active', 'status'])
         
         # Log the activation
         try:
@@ -479,6 +496,7 @@ class RecruiterDeactivateView(generics.GenericAPIView):
     queryset = Recruiter.objects.all()
     lookup_field = 'id'
     permission_classes = [IsAdminUser]
+    serializer_class = RecruiterSerializer
     
     @swagger_auto_schema(
         operation_description="Deactivate a recruiter account by UUID (admin only)",
@@ -494,7 +512,20 @@ class RecruiterDeactivateView(generics.GenericAPIView):
         """Deactivate a recruiter"""
         recruiter = self.get_object()
         recruiter.active = False
-        recruiter.save()
+        # Also disable the underlying Django user and profile to prevent login
+        try:
+            profile = recruiter.user
+            django_user = profile.user
+            django_user.is_active = False
+            django_user.save(update_fields=['is_active'])
+            profile.active = False
+            profile.save(update_fields=['active'])
+        except Exception:
+            pass
+
+        recruiter.status = 'inactive'
+        recruiter.active = False
+        recruiter.save(update_fields=['active', 'status'])
         
         # Log the deactivation
         try:
@@ -761,7 +792,7 @@ class RecruiterRegistrationFormVerifyView(generics.GenericAPIView):
                 if UserModel.objects.filter(email=registration.email).exists():
                     user = UserModel.objects.filter(email=registration.email).first()
                 else:
-                    # Create a user with a random password and mark inactive until recruiter activates
+                    # Create a user with a random password and keep inactive until admin activates
                     random_password = UserModel.objects.make_random_password()
                     user = UserModel.objects.create_user(
                         username=registration.email,
@@ -770,6 +801,8 @@ class RecruiterRegistrationFormVerifyView(generics.GenericAPIView):
                         first_name=(registration.full_name.split(' ')[0] if registration.full_name else ''),
                         last_name=(' '.join(registration.full_name.split(' ')[1:]) if registration.full_name and len(registration.full_name.split(' '))>1 else '')
                     )
+                    user.is_active = False
+                    user.save(update_fields=['is_active'])
 
                 # Create or get Profile
                 profile, _ = Profile.objects.get_or_create(
@@ -791,7 +824,7 @@ class RecruiterRegistrationFormVerifyView(generics.GenericAPIView):
                         email=registration.email,
                         phone=registration.phone_number,
                         company_name='',
-                        active=True,
+                        active=False,
                     )
                 else:
                     recruiter = Recruiter.objects.filter(email=registration.email).first()
