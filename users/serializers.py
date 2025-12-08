@@ -222,6 +222,56 @@ class RegistrationSerializer(serializers.Serializer):
         return profile
 
 
+class AdminRegistrationSerializer(serializers.Serializer):
+    """Serializer for creating admin/staff users. Only callable by authenticated admin users."""
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+    first_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    is_staff = serializers.BooleanField(default=True)
+    is_superuser = serializers.BooleanField(default=False)
+
+    def validate(self, data):
+        # password match
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError('Passwords do not match.')
+
+        # unique email
+        if User.objects.filter(email=data['email']).exists():
+            raise serializers.ValidationError({'email': 'A user with that email already exists.'})
+
+        return data
+
+    def create(self, validated_data):
+        email = validated_data['email']
+        password = validated_data['password']
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+        )
+        user.is_active = True
+        user.is_staff = bool(validated_data.get('is_staff', True))
+        user.is_superuser = bool(validated_data.get('is_superuser', False))
+        user.save()
+
+        # create profile for admin user
+        try:
+            Profile.objects.get_or_create(user=user, defaults={
+                'first_name': user.first_name or '',
+                'last_name': user.last_name or '',
+                'email': user.email or '',
+                'active': True,
+            })
+        except Exception:
+            pass
+
+        return user
+
+
 class InterestSubmissionSerializer(serializers.ModelSerializer):
     # Accepts graduation/opt in MM/YYYY format or Date input; conversion handled in validate()
     graduation_date = serializers.CharField(required=False, allow_blank=True, help_text='MM/YYYY')

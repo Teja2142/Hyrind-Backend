@@ -63,7 +63,8 @@ class AdminLoginView(TokenObtainPairView):
                 'password': openapi.Schema(type=openapi.TYPE_STRING, description='Password')
             }
         ),
-        responses={200: openapi.Response('Token pair with access and refresh tokens')}
+        responses={200: openapi.Response('Token pair with access and refresh tokens')},
+        tags=['Admin']
     )
     def post(self, request, *args, **kwargs):
         # Support email in `username` field similar to LoginView
@@ -75,9 +76,15 @@ class AdminLoginView(TokenObtainPairView):
         return super().post(request, *args, **kwargs)
 from django.contrib.auth.models import User
 from .models import Profile
-from .serializers import UserSerializer, ProfileSerializer, RegistrationSerializer, InterestSubmissionSerializer, ContactSerializer
-
-from .serializers import UserPublicSerializer
+from .serializers import (
+    UserSerializer,
+    ProfileSerializer,
+    RegistrationSerializer,
+    InterestSubmissionSerializer,
+    ContactSerializer,
+    UserPublicSerializer,
+    AdminRegistrationSerializer,
+)
 
 class UserList(generics.ListAPIView):
     queryset = User.objects.all()
@@ -669,13 +676,19 @@ class AdminProfileView(generics.RetrieveAPIView):
         """Get authenticated admin's profile"""
         try:
             profile = Profile.objects.get(user=request.user)
-            serializer = self.get_serializer(profile)
-            return Response(serializer.data, status=status.HTTP_200_OK)
         except Profile.DoesNotExist:
-            return Response(
-                {'detail': 'Profile not found for this admin user'},
-                status=status.HTTP_404_NOT_FOUND
+            # Create a profile for admin user if it doesn't exist
+            profile = Profile.objects.create(
+                user=request.user,
+                first_name=request.user.first_name or '',
+                last_name=request.user.last_name or '',
+                email=request.user.email,
+                phone='',
+                active=True  # Admin profiles are active by default
             )
+        
+        serializer = self.get_serializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AdminPasswordChangeView(generics.GenericAPIView):
@@ -840,6 +853,53 @@ class CandidateActivateView(generics.GenericAPIView):
                 {'detail': 'Profile not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class AdminRegisterView(generics.CreateAPIView):
+    """Create a new admin/staff user. Only existing admin users can call this endpoint.
+
+    Only superusers are allowed to create other superusers; staff users can create staff but not superusers.
+    """
+    permission_classes = [IsAdminUser]
+    serializer_class = None  # Will be set in post()
+
+    @swagger_auto_schema(
+        operation_description="Create a new admin/staff user (admin-only)",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['email', 'password', 'confirm_password'],
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='Admin email'),
+                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Admin password'),
+                'confirm_password': openapi.Schema(type=openapi.TYPE_STRING, description='Confirm password'),
+                'first_name': openapi.Schema(type=openapi.TYPE_STRING, description='First name (optional)'),
+                'last_name': openapi.Schema(type=openapi.TYPE_STRING, description='Last name (optional)'),
+                'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Staff status (default: true)'),
+                'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Superuser status (default: false)'),
+            }
+        ),
+        responses={201: openapi.Response('Created'), 400: 'Validation error', 403: 'Forbidden'},
+        tags=['Admin']
+    )
+    def post(self, request, *args, **kwargs):
+        from .serializers import AdminRegistrationSerializer
+        
+        # Prevent non-superusers from creating superusers
+        is_super = bool(request.data.get('is_superuser'))
+        if is_super and not request.user.is_superuser:
+            return Response({'detail': 'Only superusers may create superuser accounts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = AdminRegistrationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        out = {
+            'id': user.id,
+            'email': user.email,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+        }
+        return Response(out, status=status.HTTP_201_CREATED)
 
 
 class CandidateDeactivateView(generics.GenericAPIView):
