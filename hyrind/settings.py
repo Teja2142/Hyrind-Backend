@@ -11,7 +11,7 @@ SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'http://localhost:5173', 'http://127.0.0.1:5173']
+ALLOWED_HOSTS = ['*', 'https://api.hyrind.com', 'http://82.29.164.112:6000']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
