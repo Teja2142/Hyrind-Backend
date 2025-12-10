@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Recruiter Account — Hyrind</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:60px 0}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="row justify-content-center">
+      <div class="col-sm-10 col-md-7 col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h3 class="mb-3">Create Recruiter Account</h3>
+            {% if messages %}
+              {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+              {% endfor %}
+            {% endif %}
+            <form method="post">
+              {% csrf_token %}
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">First Name</label>
+                  {{ form.first_name }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Last Name</label>
+                  {{ form.last_name }}
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Email</label>
+                  {{ form.email }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Password</label>
+                  {{ form.password }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Confirm Password</label>
+                  {{ form.confirm_password }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Phone</label>
+                  {{ form.phone }}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Company (optional)</label>
+                  {{ form.company_name }}
+                </div>
+                <div class="col-12">
+                  <label class="form-label">LinkedIn (optional)</label>
+                  {{ form.linkedin_url }}
+                </div>
+              </div>
+              <div class="d-flex justify-content-between align-items-center mt-4">
+                <a href="/recruiter-registration/login/" class="btn btn-link">Already have an account? Login</a>
+                <button class="btn btn-primary">Create Account</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -189,6 +189,9 @@ class RegistrationSerializer(serializers.Serializer):
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', '')
         )
+        # Newly registered users should be inactive until approved by admin
+        user.is_active = False
+        user.save(update_fields=['is_active'])
         profile = Profile.objects.create(
             user=user,
             first_name=validated_data.get('first_name', ''),
@@ -207,7 +210,8 @@ class RegistrationSerializer(serializers.Serializer):
             referral_source=validated_data.get('referral_source', None),
             linkedin_url=validated_data.get('linkedin_url', None),
             github_url=validated_data.get('github_url', None),
-            additional_notes=validated_data.get('additional_notes', None)
+            additional_notes=validated_data.get('additional_notes', None),
+            active=False,
         )
         try:
             from audit.utils import log_action
@@ -216,6 +220,56 @@ class RegistrationSerializer(serializers.Serializer):
             pass
 
         return profile
+
+
+class AdminRegistrationSerializer(serializers.Serializer):
+    """Serializer for creating admin/staff users. Only callable by authenticated admin users."""
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+    first_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    is_staff = serializers.BooleanField(default=True)
+    is_superuser = serializers.BooleanField(default=False)
+
+    def validate(self, data):
+        # password match
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError('Passwords do not match.')
+
+        # unique email
+        if User.objects.filter(email=data['email']).exists():
+            raise serializers.ValidationError({'email': 'A user with that email already exists.'})
+
+        return data
+
+    def create(self, validated_data):
+        email = validated_data['email']
+        password = validated_data['password']
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+        )
+        user.is_active = True
+        user.is_staff = bool(validated_data.get('is_staff', True))
+        user.is_superuser = bool(validated_data.get('is_superuser', False))
+        user.save()
+
+        # create profile for admin user
+        try:
+            Profile.objects.get_or_create(user=user, defaults={
+                'first_name': user.first_name or '',
+                'last_name': user.last_name or '',
+                'email': user.email or '',
+                'active': True,
+            })
+        except Exception:
+            pass
+
+        return user
 
 
 class InterestSubmissionSerializer(serializers.ModelSerializer):

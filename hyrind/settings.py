@@ -11,7 +11,16 @@ SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'http://localhost:5173', 'http://127.0.0.1:5173']
+# Normalize ALLOWED_HOSTS: list hostnames only (no scheme or port).
+# Keep '*' if you still want to allow all hosts during development, but
+# in production prefer a specific list or use an env var.
+ALLOWED_HOSTS = [
+    '*',
+    'api.hyrind.com',
+    '82.29.164.112',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -68,8 +77,29 @@ MIDDLEWARE = [
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
+    'https://api.hyrind.com',
+    'http://localhost:5173'
 ]
+
+# Trusted origins for Django's CSRF Origin check. Add production API/domain origins here.
+# Include the scheme (https://) as required by Django.
+CSRF_TRUSTED_ORIGINS = [
+    'https://api.hyrind.com',
+]
+
+# If the service is behind a reverse proxy / load balancer that terminates
+# TLS and sets X-Forwarded-Proto, enable this so Django recognizes secure
+# requests and CSRF/redirects behave correctly.
+# SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# For production, ensure cookies are only sent over HTTPS. Controlled by
+# environment in case you need to run locally without TLS.
+# CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') == 'True'
+# SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True') == 'True'
+
+# Optionally redirect all HTTP to HTTPS in production. Set the environment
+# variable `SECURE_SSL_REDIRECT=True` when enabling in production.
+# SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'
 
 CORS_ALLOW_HEADERS = [
     'content-type',
@@ -166,3 +196,32 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+
+# ------------------------ MinIO / S3 Storage ------------------------
+# To enable MinIO-backed storage set USE_MINIO=True in your environment
+USE_MINIO = os.environ.get('USE_MINIO', 'False') == 'True'
+if USE_MINIO:
+    # django-storages + boto3 settings for S3-compatible backend (MinIO)
+    INSTALLED_APPS.append('storages')
+
+    AWS_ACCESS_KEY_ID = os.environ.get('MINIO_ACCESS_KEY', '')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('MINIO_SECRET_KEY', '')
+    AWS_STORAGE_BUCKET_NAME = os.environ.get('MINIO_BUCKET_NAME', 'hyrind-recruiter-docs')
+    AWS_S3_ENDPOINT_URL = os.environ.get('MINIO_ENDPOINT', 'http://127.0.0.1:9000')
+    AWS_S3_REGION_NAME = os.environ.get('MINIO_REGION', '')
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = None
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+    # Useful object parameters
+    AWS_S3_OBJECT_PARAMETERS = {
+        'CacheControl': 'max-age=86400',
+    }
+
+    # When using MinIO without TLS
+    if AWS_S3_ENDPOINT_URL.startswith('http://'):
+        AWS_S3_USE_SSL = False
+    else:
+        AWS_S3_USE_SSL = True
+# --------------------------------------------------------------------

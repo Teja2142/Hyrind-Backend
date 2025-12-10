@@ -264,12 +264,15 @@
         </div>
 
         <div class="cards">
-            <!-- Recruiter Registration Card -->
+            <!-- Recruiter Portal Card -->
             <div class="card">
                 <div class="card-icon">👔</div>
                 <h2>Recruiter Portal</h2>
-                <p>Join our network of professional recruiters. Register to access our platform and start managing candidates.</p>
-                <a href="/api/recruiters/register/" class="card-button" target="_blank" rel="noopener noreferrer">Register as Recruiter</a>
+                <p>Join our internal IT recruiting team. Manage assigned candidates, submit applications, and track placements.</p>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <a href="/recruiter-registration/" class="card-button" style="flex: 1;">Register</a>
+                    <a href="/recruiter-registration/login/" class="card-button" style="flex: 1; background: #667eea;">Login</a>
+                </div>
             </div>
 
             <!-- API Documentation Card -->
@@ -323,7 +326,7 @@
                 <a href="/swagger/" class="footer-link">API Documentation</a>
                 <a href="/admin/" class="footer-link">Admin</a>
                 <a href="/api/users/register/" class="footer-link">Candidate Registration</a>
-                <a href="/api/recruiters/register/" class="footer-link">Recruiter Registration</a>
+                <a href="/recruiter-registration/" class="footer-link">Recruiter Registration</a>
             </div>
             <p>&copy; 2025 Hyrind. All rights reserved.</p>
             <p style="margin-top: 5px; font-size: 14px;">Powered by Django REST Framework</p>

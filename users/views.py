@@ -5,6 +5,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
 
 
 class LoginView(TokenObtainPairView):
@@ -31,11 +33,58 @@ class LoginView(TokenObtainPairView):
             data['username'] = email  # Use email as username for authentication
             request._full_data = data
         return super().post(request, *args, **kwargs)
+
+
+class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Extend TokenObtainPairSerializer to restrict token issuance to admin users only."""
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        user = self.user
+        if not (user.is_staff or user.is_superuser):
+            raise serializers.ValidationError({
+                'detail': 'Admin credentials required.'
+            })
+        return data
+
+
+class AdminLoginView(TokenObtainPairView):
+    """API endpoint to obtain JWT for admin users only."""
+    permission_classes = [AllowAny]
+    serializer_class = AdminTokenObtainPairSerializer
+
+    @swagger_auto_schema(
+        operation_description="Obtain admin JWT token using email/username and password",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['username', 'password'],
+            properties={
+                'username': openapi.Schema(type=openapi.TYPE_STRING, description='Admin username or email'),
+                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Password')
+            }
+        ),
+        responses={200: openapi.Response('Token pair with access and refresh tokens')},
+        tags=['Admin']
+    )
+    def post(self, request, *args, **kwargs):
+        # Support email in `username` field similar to LoginView
+        email = request.data.get('email')
+        if email and not request.data.get('username'):
+            data = request.data.copy()
+            data['username'] = email
+            request._full_data = data
+        return super().post(request, *args, **kwargs)
 from django.contrib.auth.models import User
 from .models import Profile
-from .serializers import UserSerializer, ProfileSerializer, RegistrationSerializer, InterestSubmissionSerializer, ContactSerializer
-
-from .serializers import UserPublicSerializer
+from .serializers import (
+    UserSerializer,
+    ProfileSerializer,
+    RegistrationSerializer,
+    InterestSubmissionSerializer,
+    ContactSerializer,
+    UserPublicSerializer,
+    AdminRegistrationSerializer,
+)
 
 class UserList(generics.ListAPIView):
     queryset = User.objects.all()
@@ -600,3 +649,318 @@ Reply to this message directly or contact {instance.email}
         </body>
         </html>
         """
+
+
+# ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+class AdminProfileView(generics.RetrieveAPIView):
+    """
+    Admin endpoint to get authenticated admin's profile.
+    Requires admin/staff user.
+    """
+    serializer_class = ProfileSerializer
+    permission_classes = [IsAdminUser]
+    
+    @swagger_auto_schema(
+        operation_description="Get authenticated admin's profile information (admin only)",
+        operation_summary="Get Admin Profile",
+        responses={
+            200: ProfileSerializer,
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def get(self, request, *args, **kwargs):
+        """Get authenticated admin's profile"""
+        try:
+            profile = Profile.objects.get(user=request.user)
+        except Profile.DoesNotExist:
+            # Create a profile for admin user if it doesn't exist
+            profile = Profile.objects.create(
+                user=request.user,
+                first_name=request.user.first_name or '',
+                last_name=request.user.last_name or '',
+                email=request.user.email,
+                phone='',
+                active=True  # Admin profiles are active by default
+            )
+        
+        serializer = self.get_serializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AdminPasswordChangeView(generics.GenericAPIView):
+    """
+    Admin endpoint to change password.
+    Authenticated admin user only.
+    """
+    permission_classes = [IsAdminUser]
+    
+    @swagger_auto_schema(
+        operation_description="Change admin password (admin only)",
+        operation_summary="Admin Change Password",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['old_password', 'new_password', 'confirm_password'],
+            properties={
+                'old_password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Current password'
+                ),
+                'new_password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='New password (must be different and meet complexity requirements)'
+                ),
+                'confirm_password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Confirm new password'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response('Password changed successfully'),
+            400: "Bad Request - Invalid passwords or mismatch",
+            401: "Unauthorized - Wrong current password",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def post(self, request, *args, **kwargs):
+        """Change admin password"""
+        from django.contrib.auth.password_validation import validate_password
+        
+        old_password = request.data.get('old_password')
+        new_password = request.data.get('new_password')
+        confirm_password = request.data.get('confirm_password')
+        
+        # Validate inputs
+        if not all([old_password, new_password, confirm_password]):
+            return Response(
+                {'detail': 'Please provide old_password, new_password, and confirm_password'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check old password
+        if not request.user.check_password(old_password):
+            return Response(
+                {'detail': 'Old password is incorrect'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Check password match
+        if new_password != confirm_password:
+            return Response(
+                {'detail': 'New passwords do not match'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check password strength
+        try:
+            validate_password(new_password, user=request.user)
+        except Exception as e:
+            return Response(
+                {'detail': list(e.messages) if hasattr(e, 'messages') else str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check that new password is different from old
+        if old_password == new_password:
+            return Response(
+                {'detail': 'New password must be different from old password'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update password
+        request.user.set_password(new_password)
+        request.user.save()
+        
+        # Log the password change
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=request.user,
+                action='admin_password_changed',
+                target=f'User:{request.user.id}',
+                metadata={'user_id': request.user.id, 'email': request.user.email}
+            )
+        except Exception:
+            pass
+        
+        return Response(
+            {'message': 'Password changed successfully'},
+            status=status.HTTP_200_OK
+        )
+
+
+class CandidateActivateView(generics.GenericAPIView):
+    """
+    Admin endpoint to activate a candidate profile.
+    Sets the candidate profile as active.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Activate a candidate profile by UUID (admin only)",
+        operation_summary="Activate Candidate",
+        responses={
+            200: ProfileSerializer,
+            404: "Profile not found",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Activate a candidate"""
+        try:
+            profile = Profile.objects.get(id=id)
+        # Prefer toggling the underlying Django User.is_active flag
+            try:
+                user = profile.user
+                user.is_active = True
+                user.save(update_fields=['is_active'])
+                # mirror on profile for clarity in admin UI
+                profile.active = True
+                profile.save(update_fields=['active'])
+            except Exception:
+                # If no linked User, continue and respond
+                pass
+            
+            # Log the activation
+            try:
+                from audit.utils import log_action
+                log_action(
+                    actor=request.user,
+                    action='candidate_activated',
+                    target=f'Profile:{profile.id}',
+                    metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
+                )
+            except Exception:
+                pass
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'message': 'Candidate activated successfully',
+                'profile': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AdminRegisterView(generics.CreateAPIView):
+    """Create a new admin/staff user. Only existing admin users can call this endpoint.
+
+    Only superusers are allowed to create other superusers; staff users can create staff but not superusers.
+    """
+    permission_classes = [IsAdminUser]
+    serializer_class = None  # Will be set in post()
+
+    @swagger_auto_schema(
+        operation_description="Create a new admin/staff user (admin-only)",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['email', 'password', 'confirm_password'],
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='Admin email'),
+                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Admin password'),
+                'confirm_password': openapi.Schema(type=openapi.TYPE_STRING, description='Confirm password'),
+                'first_name': openapi.Schema(type=openapi.TYPE_STRING, description='First name (optional)'),
+                'last_name': openapi.Schema(type=openapi.TYPE_STRING, description='Last name (optional)'),
+                'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Staff status (default: true)'),
+                'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Superuser status (default: false)'),
+            }
+        ),
+        responses={201: openapi.Response('Created'), 400: 'Validation error', 403: 'Forbidden'},
+        tags=['Admin']
+    )
+    def post(self, request, *args, **kwargs):
+        from .serializers import AdminRegistrationSerializer
+        
+        # Prevent non-superusers from creating superusers
+        is_super = bool(request.data.get('is_superuser'))
+        if is_super and not request.user.is_superuser:
+            return Response({'detail': 'Only superusers may create superuser accounts.'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = AdminRegistrationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        out = {
+            'id': user.id,
+            'email': user.email,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+        }
+        return Response(out, status=status.HTTP_201_CREATED)
+
+
+class CandidateDeactivateView(generics.GenericAPIView):
+    """
+    Admin endpoint to deactivate a candidate profile.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Deactivate a candidate profile by UUID (admin only)",
+        operation_summary="Deactivate Candidate",
+        responses={
+            200: ProfileSerializer,
+            404: "Profile not found",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Deactivate a candidate"""
+        try:
+            profile = Profile.objects.get(id=id)
+            
+            # Toggle underlying Django User.is_active to prevent login
+                # Toggle underlying Django User.is_active to prevent login
+            try:
+                user = profile.user
+                user.is_active = False
+                user.save(update_fields=['is_active'])
+            except Exception:
+                pass
+            # Mirror on profile
+            try:
+                profile.active = False
+                profile.save(update_fields=['active'])
+            except Exception:
+                pass
+                
+                # Log the deactivation
+                try:
+                    from audit.utils import log_action
+                    log_action(
+                        actor=request.user,
+                        action='candidate_deactivated',
+                        target=f'Profile:{profile.id}',
+                        metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
+                    )
+                except Exception:
+                    pass
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'message': 'Candidate deactivated successfully',
+                'profile': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
