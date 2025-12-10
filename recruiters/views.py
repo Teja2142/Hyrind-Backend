@@ -484,8 +484,14 @@ class RecruiterActivateView(generics.GenericAPIView):
         
         serializer = RecruiterSerializer(recruiter)
         return Response({
+            'success': True,
             'message': 'Recruiter activated successfully',
-            'recruiter': serializer.data
+            'data': {
+                'recruiter': serializer.data,
+                'status': 'active',
+                'is_active': recruiter.active,  # Use actual DB value
+                'activated_at': recruiter.updated_at if hasattr(recruiter, 'updated_at') else None
+            }
         }, status=status.HTTP_200_OK)
 
 
@@ -541,8 +547,14 @@ class RecruiterDeactivateView(generics.GenericAPIView):
         
         serializer = RecruiterSerializer(recruiter)
         return Response({
+            'success': True,
             'message': 'Recruiter deactivated successfully',
-            'recruiter': serializer.data
+            'data': {
+                'recruiter': serializer.data,
+                'status': 'inactive',
+                'is_active': recruiter.active,  # Use actual DB value
+                'deactivated_at': recruiter.updated_at if hasattr(recruiter, 'updated_at') else None
+            }
         }, status=status.HTTP_200_OK)
 
 
