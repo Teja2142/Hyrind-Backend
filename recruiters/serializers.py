@@ -64,7 +64,8 @@ class RecruiterDashboardSerializer(serializers.ModelSerializer):
     
     def get_assigned_clients(self, obj):
         """Get list of assigned clients with details"""
-        assignments = obj.assignment_set.filter(status='active').select_related('profile')
+        # Use the related_name 'assignments' defined on Assignment.recruiter
+        assignments = obj.assignments.filter(status='active').select_related('profile')
         return [{
             'id': str(assignment.profile.id),
             'name': f"{assignment.profile.first_name} {assignment.profile.last_name}",
@@ -234,7 +235,8 @@ class RecruiterListSerializer(serializers.ModelSerializer):
     
     def get_total_assignments(self, obj):
         """Get count of assignments for this recruiter"""
-        return obj.assignment_set.count()
+        # Use the related_name 'assignments' defined on Assignment.recruiter
+        return obj.assignments.count()
     
     def get_user_name(self, obj):
         """Get full name from associated profile"""
