@@ -687,8 +687,46 @@ class AdminProfileView(generics.RetrieveAPIView):
                 active=True  # Admin profiles are active by default
             )
         
-        serializer = self.get_serializer(profile)
+            serializer = self.get_serializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CurrentUserProfileView(generics.RetrieveAPIView):
+    """
+    Endpoint for authenticated users to retrieve their own profile.
+    Accessible to any logged-in user (both regular users and admins).
+    """
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_description="Get the authenticated user's own profile information",
+        operation_summary="Get Current User Profile",
+        responses={
+            200: ProfileSerializer,
+            401: "Unauthorized - Authentication required",
+            404: "Profile not found for authenticated user"
+        },
+        tags=['User']
+    )
+    def get(self, request, *args, **kwargs):
+        """Get authenticated user's profile"""
+        try:
+            profile = Profile.objects.get(user=request.user)
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Profile.DoesNotExist:
+            # For regular users, create a profile if it doesn't exist
+            profile = Profile.objects.create(
+                user=request.user,
+                first_name=request.user.first_name or '',
+                last_name=request.user.last_name or '',
+                email=request.user.email,
+                phone='',
+                active=True  # Regular user profiles are active by default
+            )
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AdminPasswordChangeView(generics.GenericAPIView):
@@ -844,8 +882,14 @@ class CandidateActivateView(generics.GenericAPIView):
             
             serializer = self.get_serializer(profile)
             return Response({
+                'success': True,
                 'message': 'Candidate activated successfully',
-                'profile': serializer.data
+                'data': {
+                    'profile': serializer.data,
+                    'status': 'active',
+                    'is_active': profile.active,  # Use actual DB value
+                    'activated_at': profile.user.last_login  # Track when last active
+                }
             }, status=status.HTTP_200_OK)
         
         except Profile.DoesNotExist:
@@ -955,8 +999,14 @@ class CandidateDeactivateView(generics.GenericAPIView):
             
             serializer = self.get_serializer(profile)
             return Response({
+                'success': True,
                 'message': 'Candidate deactivated successfully',
-                'profile': serializer.data
+                'data': {
+                    'profile': serializer.data,
+                    'status': 'inactive',
+                    'is_active': profile.active,  # Use actual DB value
+                    'deactivated_at': profile.user.last_login
+                }
             }, status=status.HTTP_200_OK)
         
         except Profile.DoesNotExist:
