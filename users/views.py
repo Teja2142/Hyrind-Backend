@@ -686,8 +686,9 @@ class AdminProfileView(generics.RetrieveAPIView):
                 phone='',
                 active=True  # Admin profiles are active by default
             )
-        
-            serializer = self.get_serializer(profile)
+
+        # Ensure serializer is assigned for both existing and newly-created profiles
+        serializer = self.get_serializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
