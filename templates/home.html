@@ -315,6 +315,22 @@
                 <a href="/api/users/contact/" class="card-button" target="_blank" rel="noopener noreferrer">Contact Us</a>
             </div>
         </div>
+
+            <!-- Payment Testing Card -->
+            <div class="cards" style="margin-top: 40px;">
+                <div class="card" style="cursor: auto;">
+                    <div class="card-icon">💳</div>
+                    <h2>Test Payments (Razorpay)</h2>
+                    <p>Quickly create a Razorpay order and test payment flows. Paste a Bearer JWT below (optional) to authenticate API calls.</p>
+                    <div style="display:flex; gap:10px; margin-top: 15px; flex-direction: column; align-items: stretch;">
+                        <input id="jwt_token" placeholder="Paste JWT (optional)" style="padding:10px; border-radius:6px; border:1px solid #ddd; width:100%;">
+                        <input id="amount" placeholder="Amount (e.g. 100.00)" style="padding:10px; border-radius:6px; border:1px solid #ddd; width:100%;">
+                        <button id="create_order" class="card-button" style="width:100%;">Create Order & Pay</button>
+                        <pre id="payment_result" style="text-align:left; background:#f7f7f7; padding:12px; border-radius:6px; display:none; white-space:pre-wrap;"></pre>
+                    </div>
+                    <small style="display:block; margin-top:10px; color:#666;">Note: This page uses the project API endpoints: <code>/api/payments/razorpay/create-order/</code> and <code>/api/payments/razorpay/verify/</code></small>
+                </div>
+            </div>
     </div>
 
     <footer>
@@ -329,5 +345,77 @@
             <p style="margin-top: 5px; font-size: 14px;">Powered by Django REST Framework</p>
         </div>
     </footer>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script>
+        (function(){
+            const createBtn = document.getElementById('create_order');
+            const amountEl = document.getElementById('amount');
+            const tokenEl = document.getElementById('jwt_token');
+            const resultEl = document.getElementById('payment_result');
+
+            function showResult(obj){
+                resultEl.style.display = 'block';
+                resultEl.textContent = JSON.stringify(obj, null, 2);
+            }
+
+            createBtn.addEventListener('click', async function(){
+                const amount = amountEl.value.trim();
+                if(!amount){ alert('Enter amount'); return; }
+                const token = tokenEl.value.trim();
+
+                const payload = { amount: amount };
+
+                const headers = { 'Content-Type': 'application/json' };
+                if(token) headers['Authorization'] = 'Bearer ' + token;
+
+                // Create order
+                const resp = await fetch('/api/payments/razorpay/create-order/', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+
+                const json = await resp.json();
+                if(!resp.ok){ showResult({ error: json }); return; }
+
+                const order = json.order;
+                const payment_uuid = json.payment_uuid;
+                const key_id = json.key_id;
+
+                // Open Razorpay Checkout
+                const options = {
+                    key: key_id,
+                    amount: order.amount,
+                    currency: order.currency,
+                    name: 'Hyrind Test',
+                    description: 'Test Payment',
+                    order_id: order.id,
+                    handler: async function(response){
+                        // Send verification request to backend
+                        const verifyPayload = {
+                            payment_id: response.razorpay_payment_id,
+                            order_id: response.razorpay_order_id,
+                            signature: response.razorpay_signature,
+                            payment_uuid: payment_uuid
+                        };
+
+                        const verifyResp = await fetch('/api/payments/razorpay/verify/', {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify(verifyPayload)
+                        });
+                        const verifyJson = await verifyResp.json();
+                        if(!verifyResp.ok){ showResult({ verify_error: verifyJson }); return; }
+                        showResult({ success: verifyJson });
+                    },
+                    prefill: { name: '', email: '' },
+                    theme: { color: '#667eea' }
+                };
+
+                const rzp = new Razorpay(options);
+                rzp.open();
+            });
+        })();
+    </script>
 </body>
 </html>

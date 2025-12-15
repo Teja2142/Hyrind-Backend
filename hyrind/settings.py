@@ -166,3 +166,42 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+
+# ------------------------ Razorpay Settings ------------------------
+# Configure these via environment variables in production. Example .env keys:
+# RAZORPAY_KEY_ID=rzp_test_XXXXX
+# RAZORPAY_KEY_SECRET=yyyyyy
+# RAZORPAY_WEBHOOK_SECRET=whsec_zzzz
+RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+
+
+# ------------------------ MinIO / S3 Storage ------------------------
+# To enable MinIO-backed storage set USE_MINIO=True in your environment
+USE_MINIO = os.environ.get('USE_MINIO', 'False') == 'True'
+if USE_MINIO:
+    # django-storages + boto3 settings for S3-compatible backend (MinIO)
+    INSTALLED_APPS.append('storages')
+
+    AWS_ACCESS_KEY_ID = os.environ.get('MINIO_ACCESS_KEY', '')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('MINIO_SECRET_KEY', '')
+    AWS_STORAGE_BUCKET_NAME = os.environ.get('MINIO_BUCKET_NAME', 'hyrind-recruiter-docs')
+    AWS_S3_ENDPOINT_URL = os.environ.get('MINIO_ENDPOINT', 'http://127.0.0.1:9000')
+    AWS_S3_REGION_NAME = os.environ.get('MINIO_REGION', '')
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_DEFAULT_ACL = None
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+    # Useful object parameters
+    AWS_S3_OBJECT_PARAMETERS = {
+        'CacheControl': 'max-age=86400',
+    }
+
+    # When using MinIO without TLS
+    if AWS_S3_ENDPOINT_URL.startswith('http://'):
+        AWS_S3_USE_SSL = False
+    else:
+        AWS_S3_USE_SSL = True
+# --------------------------------------------------------------------
