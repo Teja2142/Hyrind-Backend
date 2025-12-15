@@ -11,6 +11,8 @@ from .serializers import (
 )
 import razorpay
 import logging
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +30,32 @@ class PaymentListCreate(generics.ListCreateAPIView):
     serializer_class = PaymentSerializer
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description='List payments (admin/authorized users)',
+        responses={200: PaymentSerializer(many=True)},
+        tags=['Payments']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        operation_description='Create a local Payment record (primarily used internally)',
+        request_body=PaymentSerializer,
+        responses={201: PaymentSerializer},
+        tags=['Payments']
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
 
 class CreateRazorpayOrderView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @swagger_auto_schema(
+        operation_description="Create a Razorpay order and a local Payment record",
+        request_body=CreateRazorpayOrderSerializer,
+        responses={201: openapi.Response('Created', PaymentSerializer)} ,
+        tags=['Payments']
+    )
     def post(self, request, *args, **kwargs):
         serializer = CreateRazorpayOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -76,6 +100,7 @@ class CreateRazorpayOrderView(APIView):
         payment.status = Payment.STATUS_PENDING
         payment.save(update_fields=['provider_order_id', 'status'])
 
+        # Return a compact order info and key id for frontend
         return Response({
             'order': razorpay_order,
             'key_id': getattr(settings, 'RAZORPAY_KEY_ID', ''),
@@ -85,7 +110,12 @@ class CreateRazorpayOrderView(APIView):
 
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @swagger_auto_schema(
+        operation_description="Verify Razorpay payment signature and mark local payment as captured",
+        request_body=VerifyRazorpayPaymentSerializer,
+        responses={200: openapi.Response('OK', openapi.Schema(type=openapi.TYPE_OBJECT))},
+        tags=['Payments']
+    )
     def post(self, request, *args, **kwargs):
         serializer = VerifyRazorpayPaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -140,16 +170,35 @@ class RazorpayWebhookView(APIView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
-        body = request.body
+        # Robust webhook verification: SDKs differ in signature API. Try both common forms.
+        raw_body = request.body
+        # SDK may expect str payload
+        try:
+            body_text = raw_body.decode('utf-8')
+        except Exception:
+            body_text = raw_body
+
         signature = request.META.get('HTTP_X_RAZORPAY_SIGNATURE', '')
         webhook_secret = getattr(settings, 'RAZORPAY_WEBHOOK_SECRET', None)
         client = get_razorpay_client()
 
-        try:
-            if webhook_secret:
-                client.utility.verify_webhook_signature(body, signature, webhook_secret)
-        except Exception:
-            logger.exception('Invalid webhook signature')
+        verified = False
+        if webhook_secret:
+            # Try calling with (body, signature, secret)
+            try:
+                client.utility.verify_webhook_signature(body_text, signature, webhook_secret)
+                verified = True
+            except TypeError:
+                # Some SDK versions expect (body, signature) with secret configured on client
+                try:
+                    client.utility.verify_webhook_signature(body_text, signature)
+                    verified = True
+                except Exception:
+                    logger.exception('Invalid webhook signature (alternative call)')
+            except Exception:
+                logger.exception('Invalid webhook signature')
+
+        if webhook_secret and not verified:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
         payload = request.data
