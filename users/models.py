@@ -10,6 +10,7 @@ class Profile(models.Model):
     last_name = models.CharField(max_length=50, blank=True)
     email = models.EmailField(max_length=255)
     phone = models.CharField(max_length=20)
+    active = models.BooleanField(default=False, help_text='Whether this profile is active and allowed to log in')
     university = models.CharField(max_length=100, blank=True)
     degree = models.CharField(max_length=100, blank=True)
     major = models.CharField(max_length=100, blank=True)

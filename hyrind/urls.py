@@ -7,12 +7,14 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from users.views import AdminLoginView
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 
 from django.conf import settings
 from django.conf.urls.static import static
+from django.urls import include
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -30,6 +32,8 @@ urlpatterns = [
     
     # Admin
     path('admin/', admin_site.urls),
+    # Explicit admin login route (helps some tooling and direct links)
+    path('admin/login/', admin_site.login, name='admin_login'),
     
     # API endpoints
     path('api/users/', include('users.urls')),
@@ -38,10 +42,14 @@ urlpatterns = [
     path('api/onboarding/', include('onboarding.urls')),
     path('api/subscriptions/', include('subscriptions.urls')),
     path('api/recruiters/', include('recruiters.urls')),
+    # Web (template) pages for recruiter registration and profile
+    path('recruiter-registration/', include('recruiters.web_urls')),
     
     # Authentication
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Admin API login (returns JWT) for frontend to authenticate admin actions
+    path('api/admin/login/', AdminLoginView.as_view(), name='admin-api-login'),
     
     # API Documentation
     path('swagger(<format>.json|.yaml)', schema_view.without_ui(cache_timeout=0), name='schema-json'),

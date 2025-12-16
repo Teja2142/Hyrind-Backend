@@ -11,7 +11,16 @@ SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'http://localhost:5173', 'http://127.0.0.1:5173']
+# Normalize ALLOWED_HOSTS: list hostnames only (no scheme or port).
+# Keep '*' if you still want to allow all hosts during development, but
+# in production prefer a specific list or use an env var.
+ALLOWED_HOSTS = [
+    '*',
+    'api.hyrind.com',
+    '82.29.164.112',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -68,8 +77,29 @@ MIDDLEWARE = [
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
+    'https://api.hyrind.com',
+    'http://localhost:5173'
 ]
+
+# Trusted origins for Django's CSRF Origin check. Add production API/domain origins here.
+# Include the scheme (https://) as required by Django.
+CSRF_TRUSTED_ORIGINS = [
+    'https://api.hyrind.com',
+]
+
+# If the service is behind a reverse proxy / load balancer that terminates
+# TLS and sets X-Forwarded-Proto, enable this so Django recognizes secure
+# requests and CSRF/redirects behave correctly.
+# SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# For production, ensure cookies are only sent over HTTPS. Controlled by
+# environment in case you need to run locally without TLS.
+# CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') == 'True'
+# SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True') == 'True'
+
+# Optionally redirect all HTTP to HTTPS in production. Set the environment
+# variable `SECURE_SSL_REDIRECT=True` when enabling in production.
+# SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'
 
 CORS_ALLOW_HEADERS = [
     'content-type',
