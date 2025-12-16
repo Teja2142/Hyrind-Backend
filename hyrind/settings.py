@@ -197,6 +197,16 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
 
+# ------------------------ Razorpay Settings ------------------------
+# Configure these via environment variables in production. Example .env keys:
+# RAZORPAY_KEY_ID=rzp_test_XXXXX
+# RAZORPAY_KEY_SECRET=yyyyyy
+# RAZORPAY_WEBHOOK_SECRET=whsec_zzzz
+RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+
+
 # ------------------------ MinIO / S3 Storage ------------------------
 # To enable MinIO-backed storage set USE_MINIO=True in your environment
 USE_MINIO = os.environ.get('USE_MINIO', 'False') == 'True'
