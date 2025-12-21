@@ -18,6 +18,7 @@ ALLOWED_HOSTS = [
     '*',
     'api.hyrind.com',
     '82.29.164.112',
+    'api-staging.hyrind.com'
     'http://localhost:5173',
     'http://127.0.0.1:5173'
 ]
@@ -78,6 +79,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     'https://api.hyrind.com',
+    'api-staging.hyrind.com'
     'http://localhost:5173'
 ]
 
@@ -85,6 +87,7 @@ CORS_ALLOWED_ORIGINS = [
 # Include the scheme (https://) as required by Django.
 CSRF_TRUSTED_ORIGINS = [
     'https://api.hyrind.com',
+    'api-staging.hyrind.com'
 ]
 
 # If the service is behind a reverse proxy / load balancer that terminates
