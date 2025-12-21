@@ -62,7 +62,7 @@ class CreateRazorpayOrderView(APIView):
         data = serializer.validated_data
 
         amount = data.get('amount')
-        currency = data.get('currency', 'INR')
+        currency = data.get('currency') or getattr(settings, 'RAZORPAY_CURRENCY', 'USD')
         notes = data.get('notes') or {}
         idempotency_key = data.get('idempotency_key')
 

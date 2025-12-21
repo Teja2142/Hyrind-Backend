@@ -202,9 +202,11 @@ OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.c
 # RAZORPAY_KEY_ID=rzp_test_XXXXX
 # RAZORPAY_KEY_SECRET=yyyyyy
 # RAZORPAY_WEBHOOK_SECRET=whsec_zzzz
+# RAZORPAY_CURRENCY=USD (or INR)
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+RAZORPAY_CURRENCY = os.environ.get('RAZORPAY_CURRENCY', 'USD')
 
 
 # ------------------------ MinIO / S3 Storage ------------------------
