@@ -18,7 +18,7 @@ ALLOWED_HOSTS = [
     '*',
     'https://api.hyrind.com',
     'http://82.29.164.112',
-    'https://api-staging.hyrind.com'
+    'https://api-staging.hyrind.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173'
 ]
@@ -79,7 +79,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     'https://api.hyrind.com',
-    'https://api-staging.hyrind.com'
+    'https://api-staging.hyrind.com',
     'http://localhost:5173'
 ]
 
