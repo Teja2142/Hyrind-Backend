@@ -16,9 +16,9 @@ DEBUG = True
 # in production prefer a specific list or use an env var.
 ALLOWED_HOSTS = [
     '*',
-    'api.hyrind.com',
-    '82.29.164.112',
-    'api-staging.hyrind.com'
+    'https://api.hyrind.com',
+    'http://82.29.164.112',
+    'https://api-staging.hyrind.com'
     'http://localhost:5173',
     'http://127.0.0.1:5173'
 ]
