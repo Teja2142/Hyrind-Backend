@@ -15,7 +15,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 class CreateRazorpayOrderSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2)
-    currency = serializers.CharField(max_length=10, default='INR', required=False)
+    currency = serializers.CharField(max_length=10, required=False, allow_blank=True, allow_null=True)
     receipt = serializers.CharField(max_length=200, required=False)
     notes = serializers.DictField(child=serializers.CharField(), required=False)
     idempotency_key = serializers.CharField(max_length=200, required=False)

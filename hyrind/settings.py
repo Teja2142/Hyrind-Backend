@@ -16,8 +16,9 @@ DEBUG = True
 # in production prefer a specific list or use an env var.
 ALLOWED_HOSTS = [
     '*',
-    'api.hyrind.com',
-    '82.29.164.112',
+    'https://api.hyrind.com',
+    'http://82.29.164.112',
+    'https://api-staging.hyrind.com',
     'http://localhost:5173',
     'http://127.0.0.1:5173'
 ]
@@ -78,6 +79,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     'https://api.hyrind.com',
+    'https://api-staging.hyrind.com',
     'http://localhost:5173'
 ]
 
@@ -85,6 +87,7 @@ CORS_ALLOWED_ORIGINS = [
 # Include the scheme (https://) as required by Django.
 CSRF_TRUSTED_ORIGINS = [
     'https://api.hyrind.com',
+    'https://api-staging.hyrind.com'
 ]
 
 # If the service is behind a reverse proxy / load balancer that terminates
@@ -202,9 +205,11 @@ OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.c
 # RAZORPAY_KEY_ID=rzp_test_XXXXX
 # RAZORPAY_KEY_SECRET=yyyyyy
 # RAZORPAY_WEBHOOK_SECRET=whsec_zzzz
+# RAZORPAY_CURRENCY=USD (or INR)
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+RAZORPAY_CURRENCY = os.environ.get('RAZORPAY_CURRENCY', 'USD')
 
 
 # ------------------------ MinIO / S3 Storage ------------------------
