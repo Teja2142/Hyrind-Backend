@@ -122,10 +122,82 @@ class RegistrationView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         profile = serializer.save()
+        
+        # Send welcome email to user
+        self._send_welcome_email_to_user(profile)
+        
+        # Send notification email to admin
+        self._send_notification_to_admin(profile)
+        
         return Response({
-            'message': 'User registered successfully',
+            'message': 'User registered successfully. Please check your email for further instructions.',
             'profile_id': str(profile.id)  # Profile.id is the UUID primary key
         }, status=status.HTTP_201_CREATED)
+    
+    def _send_welcome_email_to_user(self, profile):
+        """Send welcome email to newly registered user"""
+        try:
+            from utils.email_service import EmailService, UserRegistrationEmailTemplate
+            
+            user_data = {
+                'first_name': profile.first_name,
+                'last_name': profile.last_name,
+                'email': profile.email,
+                'phone': profile.phone,
+                'university': profile.university,
+                'degree': profile.degree,
+                'major': profile.major,
+                'graduation_date': profile.graduation_date,
+                'visa_status': profile.visa_status,
+                'opt_end_date': profile.opt_end_date,
+                'profile_id': str(profile.id),
+                'created_at': profile.user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if hasattr(profile.user, 'date_joined') else 'N/A'
+            }
+            
+            subject, text_content, html_content = UserRegistrationEmailTemplate.get_welcome_email_to_user(user_data)
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[profile.email]
+            )
+            
+        except Exception as e:
+            print(f"✗ Failed to send welcome email to user: {str(e)}")
+    
+    def _send_notification_to_admin(self, profile):
+        """Send notification email to operations team about new user registration"""
+        try:
+            from utils.email_service import EmailService, UserRegistrationEmailTemplate
+            from django.conf import settings
+            
+            user_data = {
+                'first_name': profile.first_name,
+                'last_name': profile.last_name,
+                'email': profile.email,
+                'phone': profile.phone,
+                'university': profile.university,
+                'degree': profile.degree,
+                'major': profile.major,
+                'graduation_date': profile.graduation_date,
+                'visa_status': profile.visa_status,
+                'opt_end_date': profile.opt_end_date,
+                'profile_id': str(profile.id),
+                'created_at': profile.user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if hasattr(profile.user, 'date_joined') else 'N/A'
+            }
+            
+            subject, text_content, html_content = UserRegistrationEmailTemplate.get_admin_notification_email(user_data)
+            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+            
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[operations_email]
+            )
+            
+        except Exception as e:
+            print(f"✗ Failed to send notification email to admin: {str(e)}")
 
 
 class InterestSubmissionCreateView(generics.CreateAPIView):
@@ -836,7 +908,7 @@ class AdminPasswordChangeView(generics.GenericAPIView):
 class CandidateActivateView(generics.GenericAPIView):
     """
     Admin endpoint to activate a candidate profile.
-    Sets the candidate profile as active.
+    Sets the candidate profile as active and sends activation email.
     """
     permission_classes = [IsAdminUser]
     queryset = Profile.objects.all()
@@ -865,6 +937,10 @@ class CandidateActivateView(generics.GenericAPIView):
                 # mirror on profile for clarity in admin UI
                 profile.active = True
                 profile.save(update_fields=['active'])
+                
+                # Send activation email to the user
+                self._send_activation_email_to_user(profile)
+                
             except Exception:
                 # If no linked User, continue and respond
                 pass
@@ -898,6 +974,50 @@ class CandidateActivateView(generics.GenericAPIView):
                 {'detail': 'Profile not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+    
+    def _send_activation_email_to_user(self, profile):
+        """
+        Send activation notification email to the candidate
+        
+        Args:
+            profile: Profile instance of the activated candidate
+        """
+        try:
+            from utils.email_service import EmailService, UserActivationEmailTemplate
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Prepare user data for email template
+            user_data = {
+                'first_name': profile.first_name,
+                'last_name': profile.last_name,
+                'email': profile.email,
+                'login_url': 'https://hyrind.com/login',  # Update with your actual frontend URL
+            }
+            
+            # Get email content from template
+            subject, text_content, html_content = UserActivationEmailTemplate.get_activation_email(user_data)
+            
+            # Send email
+            email_service = EmailService()
+            success = email_service.send_email(
+                to_email=profile.email,
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content
+            )
+            
+            if success:
+                logger.info(f"Activation email sent successfully to {profile.email}")
+            else:
+                logger.warning(f"Failed to send activation email to {profile.email}")
+                
+        except Exception as e:
+            # Log the error but don't fail the activation process
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error sending activation email to {profile.email}: {str(e)}")
 
 
 class AdminRegisterView(generics.CreateAPIView):

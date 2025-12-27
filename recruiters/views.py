@@ -161,6 +161,12 @@ class RecruiterRegistrationView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         recruiter = serializer.save()
         
+        # Send welcome email to recruiter
+        self._send_welcome_email_to_recruiter(recruiter)
+        
+        # Send notification email to admin
+        self._send_notification_to_admin(recruiter)
+        
         return Response({
             'id': str(recruiter.id),
             'employee_id': recruiter.employee_id,
@@ -169,8 +175,71 @@ class RecruiterRegistrationView(generics.CreateAPIView):
             'department': recruiter.get_department_display(),
             'specialization': recruiter.get_specialization_display(),
             'status': recruiter.status,
-            'message': 'Registration successful. Your account is pending admin approval.'
+            'message': 'Registration successful. Please check your email for further instructions.'
         }, status=status.HTTP_201_CREATED)
+    
+    def _send_welcome_email_to_recruiter(self, recruiter):
+        """Send welcome email to newly registered recruiter"""
+        try:
+            from utils.email_service import EmailService, RecruiterRegistrationEmailTemplate
+            
+            recruiter_data = {
+                'id': str(recruiter.id),
+                'employee_id': recruiter.employee_id,
+                'name': recruiter.name,
+                'email': recruiter.email,
+                'phone': recruiter.phone,
+                'department_display': recruiter.get_department_display(),
+                'specialization_display': recruiter.get_specialization_display(),
+                'date_of_joining': recruiter.date_of_joining,
+                'max_clients': recruiter.max_clients,
+                'status': recruiter.get_status_display(),
+                'created_at': recruiter.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            subject, text_content, html_content = RecruiterRegistrationEmailTemplate.get_welcome_email_to_recruiter(recruiter_data)
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[recruiter.email]
+            )
+            
+        except Exception as e:
+            print(f"✗ Failed to send welcome email to recruiter: {str(e)}")
+    
+    def _send_notification_to_admin(self, recruiter):
+        """Send notification email to operations team about new recruiter registration"""
+        try:
+            from utils.email_service import EmailService, RecruiterRegistrationEmailTemplate
+            from django.conf import settings
+            
+            recruiter_data = {
+                'id': str(recruiter.id),
+                'employee_id': recruiter.employee_id,
+                'name': recruiter.name,
+                'email': recruiter.email,
+                'phone': recruiter.phone,
+                'department_display': recruiter.get_department_display(),
+                'specialization_display': recruiter.get_specialization_display(),
+                'date_of_joining': recruiter.date_of_joining,
+                'max_clients': recruiter.max_clients,
+                'status': recruiter.get_status_display(),
+                'created_at': recruiter.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            subject, text_content, html_content = RecruiterRegistrationEmailTemplate.get_admin_notification_email(recruiter_data)
+            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+            
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[operations_email]
+            )
+            
+        except Exception as e:
+            print(f"✗ Failed to send notification email to admin: {str(e)}")
 
 
 class RecruiterMeView(generics.RetrieveUpdateAPIView):
@@ -431,7 +500,7 @@ class RecruiterDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class RecruiterActivateView(generics.GenericAPIView):
     """
-    Admin endpoint to activate/approve a recruiter account.
+    Admin endpoint to activate/approve a recruiter account and send activation email.
     """
     queryset = Recruiter.objects.all()
     lookup_field = 'id'
@@ -470,6 +539,9 @@ class RecruiterActivateView(generics.GenericAPIView):
         recruiter.active = True
         recruiter.save(update_fields=['active', 'status'])
         
+        # Send activation email to the recruiter
+        self._send_activation_email_to_recruiter(recruiter)
+        
         # Log the activation
         try:
             from audit.utils import log_action
@@ -493,6 +565,55 @@ class RecruiterActivateView(generics.GenericAPIView):
                 'activated_at': recruiter.updated_at if hasattr(recruiter, 'updated_at') else None
             }
         }, status=status.HTTP_200_OK)
+    
+    def _send_activation_email_to_recruiter(self, recruiter):
+        """
+        Send activation notification email to the recruiter
+        
+        Args:
+            recruiter: Recruiter instance of the activated recruiter
+        """
+        try:
+            from utils.email_service import EmailService, RecruiterActivationEmailTemplate
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Prepare recruiter data for email template
+            recruiter_data = {
+                'employee_id': recruiter.employee_id,
+                'name': recruiter.name,
+                'email': recruiter.email,
+                'department_display': recruiter.get_department_display() if recruiter.department else 'N/A',
+                'specialization_display': recruiter.get_specialization_display() if recruiter.specialization else 'N/A',
+                'max_clients': recruiter.max_clients,
+                'login_url': 'https://hyrind.com/recruiter/login',  # Update with your actual frontend URL
+                'dashboard_url': 'https://hyrind.com/recruiter/dashboard',  # Update with your actual frontend URL
+            }
+            
+            # Get email content from template
+            subject, text_content, html_content = RecruiterActivationEmailTemplate.get_activation_email(recruiter_data)
+            
+            # Send email
+            email_service = EmailService()
+            success = email_service.send_email(
+                to_email=recruiter.email,
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content
+            )
+            
+            if success:
+                logger.info(f"Activation email sent successfully to recruiter {recruiter.email}")
+            else:
+                logger.warning(f"Failed to send activation email to recruiter {recruiter.email}")
+                
+        except Exception as e:
+            # Log the error but don't fail the activation process
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error sending activation email to recruiter {recruiter.email}: {str(e)}")
+
 
 
 class RecruiterDeactivateView(generics.GenericAPIView):
