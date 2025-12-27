@@ -14,7 +14,8 @@ from .serializers import (
     UserSubscriptionSerializer,
     UserSubscriptionCreateSerializer,
     BillingHistorySerializer,
-    UserSubscriptionSummarySerializer
+    UserSubscriptionSummarySerializer,
+    AdminUserSubscriptionUpdateSerializer
 )
 from utils.profile_utils import ProfileResolveMixin
 
@@ -68,6 +69,7 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+
 class UserSubscriptionViewSet(viewsets.ModelViewSet):
     """
     User subscription management
@@ -90,6 +92,8 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
         """Use different serializer for creation"""
         if self.action == 'create':
             return UserSubscriptionCreateSerializer
+        elif self.action == 'update_price':
+            return AdminUserSubscriptionUpdateSerializer
         return UserSubscriptionSerializer
     
     def create(self, request, *args, **kwargs):
@@ -237,6 +241,43 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
         }
         
         return Response(data)
+    
+    @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAdminUser])
+    def update_price(self, request, pk=None):
+        """
+        Admin endpoint to update the price and other details of a user's subscription.
+        PATCH /api/subscriptions/my-subscriptions/{id}/update_price/
+        Body: {"price": 123.45, "status": "active", "billing_cycle": "monthly", "admin_notes": "Custom pricing"}
+        """
+        subscription = self.get_object()
+        serializer = AdminUserSubscriptionUpdateSerializer(
+            subscription, 
+            data=request.data, 
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
+        # Log action
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=request.user,
+                action='subscription_price_updated',
+                target=f'UserSubscription:{subscription.id}',
+                metadata={
+                    'profile': str(subscription.profile.id),
+                    'plan': subscription.plan.name,
+                    'new_price': str(subscription.price)
+                }
+            )
+        except Exception:
+            pass
+        
+        return Response(
+            UserSubscriptionSerializer(subscription).data,
+            status=status.HTTP_200_OK
+        )
 
 
 class BillingHistoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -255,6 +296,83 @@ class BillingHistoryViewSet(viewsets.ReadOnlyModelViewSet):
                 user_subscription__profile=self.request.user.profile
             )
         return BillingHistory.objects.none()
+
+
+class AdminUserSubscriptionViewSet(viewsets.ModelViewSet):
+    """
+    Admin endpoint for managing all client subscriptions
+    GET /api/subscriptions/admin/subscriptions/ - List all client subscriptions
+    GET /api/subscriptions/admin/subscriptions/{id}/ - Get subscription details
+    POST /api/subscriptions/admin/subscriptions/ - Create subscription for a client
+    PATCH /api/subscriptions/admin/subscriptions/{id}/ - Update subscription (including price)
+    DELETE /api/subscriptions/admin/subscriptions/{id}/ - Delete subscription
+    """
+    queryset = UserSubscription.objects.all().select_related('profile', 'plan')
+    serializer_class = UserSubscriptionSerializer
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get_serializer_class(self):
+        """Use AdminUserSubscriptionUpdateSerializer for updates"""
+        if self.action in ['update', 'partial_update']:
+            return AdminUserSubscriptionUpdateSerializer
+        return UserSubscriptionSerializer
+    
+    def get_queryset(self):
+        """Return all subscriptions with optional filtering"""
+        queryset = super().get_queryset()
+        
+        # Filter by profile/client
+        profile_id = self.request.query_params.get('profile_id')
+        if profile_id:
+            queryset = queryset.filter(profile__id=profile_id)
+        
+        # Filter by status
+        sub_status = self.request.query_params.get('status')
+        if sub_status:
+            queryset = queryset.filter(status=sub_status)
+        
+        # Filter by plan type
+        plan_type = self.request.query_params.get('plan_type')
+        if plan_type in ['base', 'addon']:
+            queryset = queryset.filter(plan__plan_type=plan_type)
+        
+        return queryset.order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Log subscription creation by admin"""
+        subscription = serializer.save()
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=self.request.user,
+                action='admin_subscription_created',
+                target=f'UserSubscription:{subscription.id}',
+                metadata={
+                    'profile': str(subscription.profile.id),
+                    'plan': subscription.plan.name,
+                    'price': str(subscription.price)
+                }
+            )
+        except Exception:
+            pass
+    
+    def perform_update(self, serializer):
+        """Log subscription update by admin"""
+        subscription = serializer.save()
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=self.request.user,
+                action='admin_subscription_updated',
+                target=f'UserSubscription:{subscription.id}',
+                metadata={
+                    'profile': str(subscription.profile.id),
+                    'plan': subscription.plan.name,
+                    'price': str(subscription.price)
+                }
+            )
+        except Exception:
+            pass
 
 
 class SubscriptionPaymentWebhookView(APIView):

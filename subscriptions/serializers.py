@@ -119,6 +119,20 @@ class UserSubscriptionSummarySerializer(serializers.Serializer):
     next_billing_date = serializers.DateField()
 
 
+class AdminUserSubscriptionUpdateSerializer(serializers.ModelSerializer):
+    """Admin serializer for updating client subscription pricing"""
+    
+    class Meta:
+        model = UserSubscription
+        fields = ['price', 'status', 'billing_cycle', 'admin_notes']
+    
+    def validate_price(self, value):
+        """Ensure price is positive"""
+        if value < 0:
+            raise serializers.ValidationError('Price must be a positive value.')
+        return value
+
+
 # Legacy serializer - kept for backward compatibility
 class SubscriptionSerializer(serializers.ModelSerializer):
     """

@@ -21,14 +21,45 @@ class UserPublicSerializer(serializers.ModelSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)  # nested user is read-only for responses
     user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), write_only=True, source='user', required=False)
+    assignment_status = serializers.SerializerMethodField()
+    recruiter_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
         fields = [
             'id', 'user', 'first_name', 'last_name', 'email', 'phone', 'university',
             'degree', 'major', 'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'consent_to_terms',
-            'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id'
+            'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id', 'active',
+            'assignment_status', 'recruiter_info'
         ]
+
+    def get_assignment_status(self, obj):
+        """Get client's assignment status to a recruiter"""
+        try:
+            assignment = obj.assignment
+            return {
+                'status': assignment.status,
+                'priority': assignment.priority,
+                'assigned_at': assignment.assigned_at,
+                'last_activity': assignment.last_activity
+            }
+        except Exception:
+            return None
+
+    def get_recruiter_info(self, obj):
+        """Get assigned recruiter information"""
+        try:
+            assignment = obj.assignment
+            if assignment.recruiter:
+                return {
+                    'id': str(assignment.recruiter.id),
+                    'name': assignment.recruiter.name,
+                    'email': assignment.recruiter.email,
+                    'employee_id': assignment.recruiter.employee_id
+                }
+        except Exception:
+            pass
+        return None
 
     def validate(self, data):
         import re
