@@ -349,6 +349,101 @@ For support, contact us at: {settings.OPERATIONS_EMAIL}
 """
         
         return subject, text_content, html_content
+
+
+    
+
+
+class SubscriptionEmailTemplate:
+    """Email templates for subscription activation and cancellation"""
+
+    @staticmethod
+    def _normalize(obj: Dict[str, Any] | object) -> Dict[str, Any]:
+        """Normalize input to a data dict. Accepts a subscription object or a dict."""
+        data: Dict[str, Any] = {}
+        try:
+            if hasattr(obj, 'profile'):
+                profile = obj.profile
+                user = getattr(profile, 'user', None)
+                data['first_name'] = getattr(user, 'first_name', '') if user else ''
+                data['last_name'] = getattr(user, 'last_name', '') if user else ''
+                data['email'] = getattr(profile, 'email', None) or (getattr(user, 'email', None) if user else None)
+                data['plan_name'] = getattr(obj.plan, 'name', '')
+                data['price'] = getattr(obj, 'price', '')
+                data['billing_cycle'] = getattr(obj, 'billing_cycle', 'monthly')
+                data['next_billing_date'] = getattr(obj, 'next_billing_date', None)
+            elif isinstance(obj, dict):
+                data = obj.copy()
+            else:
+                # Fallback: try attribute access
+                data['first_name'] = getattr(obj, 'first_name', '')
+                data['last_name'] = getattr(obj, 'last_name', '')
+                data['email'] = getattr(obj, 'email', None)
+                data['plan_name'] = getattr(obj, 'plan_name', '')
+                data['price'] = getattr(obj, 'price', '')
+                data['billing_cycle'] = getattr(obj, 'billing_cycle', 'monthly')
+                data['next_billing_date'] = getattr(obj, 'next_billing_date', None)
+        except Exception:
+            pass
+        return data
+
+    @staticmethod
+    def get_activation_email(obj: Dict[str, Any] | object) -> tuple:
+        data = SubscriptionEmailTemplate._normalize(obj)
+        subject = f"Your subscription is active: {data.get('plan_name', '')}"
+        text_content = f"""
+Hello {data.get('first_name', '')} {data.get('last_name', '')},
+
+Your subscription "{data.get('plan_name', '')}" is now active.
+
+Details:
+- Plan: {data.get('plan_name', '')}
+- Price: {data.get('price', '')}
+- Billing Cycle: {data.get('billing_cycle', '')}
+- Next Billing Date: {data.get('next_billing_date', '')}
+
+You can manage your subscriptions from your dashboard.
+
+Thanks,
+Hyrind Team
+"""
+        dashboard_url = getattr(settings, 'FRONTEND_URL', '')
+        html_content = f"""
+<p>Hello {data.get('first_name', '')} {data.get('last_name', '')},</p>
+<p>Your subscription <strong>{data.get('plan_name', '')}</strong> is now <strong>active</strong>.</p>
+<ul>
+  <li><strong>Price:</strong> {data.get('price', '')}</li>
+  <li><strong>Billing Cycle:</strong> {data.get('billing_cycle', '')}</li>
+  <li><strong>Next Billing Date:</strong> {data.get('next_billing_date', '')}</li>
+</ul>
+<p>Manage your subscriptions on your dashboard: {dashboard_url}</p>
+<p>— The Hyrind Team</p>
+"""
+        return subject, text_content, html_content
+
+    @staticmethod
+    def get_cancellation_email(obj: Dict[str, Any] | object) -> tuple:
+        data = SubscriptionEmailTemplate._normalize(obj)
+        subject = f"Subscription cancelled: {data.get('plan_name', '')}"
+        text_content = f"""
+Hello {data.get('first_name', '')} {data.get('last_name', '')},
+
+Your subscription "{data.get('plan_name', '')}" has been cancelled.
+
+If this was a mistake or you want to re-subscribe, please contact support or visit your dashboard.
+
+Thanks,
+Hyrind Team
+"""
+        dashboard_url = getattr(settings, 'FRONTEND_URL', '')
+        html_content = f"""
+<p>Hello {data.get('first_name', '')} {data.get('last_name', '')},</p>
+<p>Your subscription <strong>{data.get('plan_name', '')}</strong> has been <strong>cancelled</strong>.</p>
+<p>If this was a mistake or you want to re-subscribe, please visit your dashboard: {dashboard_url}</p>
+<p>— The Hyrind Team</p>
+"""
+        return subject, text_content, html_content
+        
     
     @staticmethod
     def get_admin_notification_email(user_data: Dict[str, Any]) -> tuple:
@@ -1805,3 +1900,24 @@ Support: {settings.OPERATIONS_EMAIL}
 """
         
         return subject, text_content, html_content
+
+
+
+
+
+if __name__ == '__main__':
+    # Quick smoke test for templates (run locally)
+    try:
+        sample_sub = {
+            'first_name': 'Test',
+            'last_name': 'User',
+            'plan_name': 'Pro',
+            'price': '49.00',
+            'billing_cycle': 'monthly',
+            'next_billing_date': '2026-01-28'
+        }
+        print('Activation subject:', SubscriptionEmailTemplate.get_activation_email(sample_sub)[0])
+        sample_user = {'first_name': 'Jane', 'last_name': 'Doe', 'email': 'jane@example.com', 'profile_id': 'abc123', 'created_at': 'now'}
+        print('Admin notif subject:', UserRegistrationEmailTemplate.get_admin_notification_email(sample_user)[0])
+    except Exception as e:
+        print('Smoke test failed:', e)

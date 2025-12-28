@@ -116,6 +116,28 @@ CORS_ALLOW_HEADERS = [
     'authorization',
 ]
 
+# Ensure common headers are allowed in CORS preflight and explicitly allow HTTP methods
+# including PATCH which some browsers require to be present in Access-Control-Allow-Methods
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'origin',
+    'user-agent',
+    'x-requested-with',
+    'x-csrftoken',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
 ROOT_URLCONF = 'hyrind.urls'
 
 TEMPLATES = [

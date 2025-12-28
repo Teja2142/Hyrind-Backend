@@ -168,6 +168,14 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             pass
+
+        # Send activation email to user
+        try:
+            from utils.email_service import EmailService, SubscriptionEmailTemplate
+            subject, text_content, html_content = SubscriptionEmailTemplate.get_activation_email(subscription)
+            EmailService.send_email(subject, text_content, html_content, to_emails=[subscription.profile.email])
+        except Exception:
+            pass
         
         serializer = self.get_serializer(subscription)
         return Response(serializer.data)
@@ -197,6 +205,14 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
                 target=f'UserSubscription:{subscription.id}',
                 metadata={'plan': subscription.plan.name}
             )
+        except Exception:
+            pass
+
+        # Send cancellation email to user
+        try:
+            from utils.email_service import EmailService, SubscriptionEmailTemplate
+            subject, text_content, html_content = SubscriptionEmailTemplate.get_cancellation_email(subscription)
+            EmailService.send_email(subject, text_content, html_content, to_emails=[subscription.profile.email])
         except Exception:
             pass
         

@@ -358,7 +358,7 @@ class RecruiterListView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
     
     @swagger_auto_schema(
-        operation_description="Get list of all recruiters (admin only)",
+        operation_description="List all recruiters (admin only)",
         operation_summary="List All Recruiters",
         manual_parameters=[
             openapi.Parameter(
@@ -594,18 +594,16 @@ class RecruiterActivateView(generics.GenericAPIView):
             # Get email content from template
             subject, text_content, html_content = RecruiterActivationEmailTemplate.get_activation_email(recruiter_data)
             
-            # Send email
-            email_service = EmailService()
-            success = email_service.send_email(
-                to_email=recruiter.email,
-                subject=subject,
-                text_content=text_content,
-                html_content=html_content
-            )
-            
-            if success:
+            # Send email using central EmailService
+            try:
+                EmailService.send_email(
+                    subject,
+                    text_content,
+                    html_content,
+                    to_emails=[recruiter.email]
+                )
                 logger.info(f"Activation email sent successfully to recruiter {recruiter.email}")
-            else:
+            except Exception:
                 logger.warning(f"Failed to send activation email to recruiter {recruiter.email}")
                 
         except Exception as e:

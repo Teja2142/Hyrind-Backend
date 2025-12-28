@@ -939,7 +939,10 @@ class CandidateActivateView(generics.GenericAPIView):
                 profile.save(update_fields=['active'])
                 
                 # Send activation email to the user
-                self._send_activation_email_to_user(profile)
+                try:
+                    self._send_activation_email_to_user(profile)
+                except Exception:
+                    pass
                 
             except Exception:
                 # If no linked User, continue and respond
@@ -999,18 +1002,16 @@ class CandidateActivateView(generics.GenericAPIView):
             # Get email content from template
             subject, text_content, html_content = UserActivationEmailTemplate.get_activation_email(user_data)
             
-            # Send email
-            email_service = EmailService()
-            success = email_service.send_email(
-                to_email=profile.email,
-                subject=subject,
-                text_content=text_content,
-                html_content=html_content
-            )
-            
-            if success:
+            # Send email using central EmailService
+            try:
+                EmailService.send_email(
+                    subject,
+                    text_content,
+                    html_content,
+                    to_emails=[profile.email]
+                )
                 logger.info(f"Activation email sent successfully to {profile.email}")
-            else:
+            except Exception:
                 logger.warning(f"Failed to send activation email to {profile.email}")
                 
         except Exception as e:
