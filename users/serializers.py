@@ -23,6 +23,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), write_only=True, source='user', required=False)
     assignment_status = serializers.SerializerMethodField()
     recruiter_info = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
@@ -30,8 +32,16 @@ class ProfileSerializer(serializers.ModelSerializer):
             'id', 'user', 'first_name', 'last_name', 'email', 'phone', 'university',
             'degree', 'major', 'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'consent_to_terms',
             'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id', 'active',
-            'assignment_status', 'recruiter_info'
+            'status', 'status_display', 'assignment_status', 'recruiter_info'
         ]
+
+    def get_status(self, obj):
+        """Get simple status value based on active field"""
+        return 'active' if obj.active else 'inactive'
+    
+    def get_status_display(self, obj):
+        """Get human-readable status"""
+        return 'Active' if obj.active else 'Inactive'
 
     def get_assignment_status(self, obj):
         """Get client's assignment status to a recruiter"""
@@ -51,11 +61,19 @@ class ProfileSerializer(serializers.ModelSerializer):
         try:
             assignment = obj.assignment
             if assignment.recruiter:
+                recruiter = assignment.recruiter
                 return {
-                    'id': str(assignment.recruiter.id),
-                    'name': assignment.recruiter.name,
-                    'email': assignment.recruiter.email,
-                    'employee_id': assignment.recruiter.employee_id
+                    'id': str(recruiter.id),
+                    'name': recruiter.name,
+                    'email': recruiter.email,
+                    'employee_id': recruiter.employee_id,
+                    'phone': recruiter.phone,
+                    'department': recruiter.department,
+                    'department_display': recruiter.get_department_display(),
+                    'specialization': recruiter.specialization,
+                    'specialization_display': recruiter.get_specialization_display(),
+                    'status': recruiter.status,
+                    'active': recruiter.active
                 }
         except Exception:
             pass

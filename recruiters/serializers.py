@@ -219,7 +219,9 @@ class RecruiterListSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     department_display = serializers.CharField(source='get_department_display', read_only=True)
     specialization_display = serializers.CharField(source='get_specialization_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
     available_slots = serializers.SerializerMethodField()
+    assigned_clients = serializers.SerializerMethodField()
     
     class Meta:
         model = Recruiter
@@ -227,7 +229,7 @@ class RecruiterListSerializer(serializers.ModelSerializer):
             'id', 'employee_id', 'name', 'email', 'phone', 'user_name',
             'department', 'department_display', 'specialization', 'specialization_display',
             'current_clients_count', 'available_slots', 'total_placements', 'active_applications',
-            'status', 'active', 'total_assignments', 'created_at'
+            'status', 'status_display', 'active', 'total_assignments', 'assigned_clients', 'created_at'
         ]
     
     def get_available_slots(self, obj):
@@ -241,6 +243,23 @@ class RecruiterListSerializer(serializers.ModelSerializer):
     def get_user_name(self, obj):
         """Get full name from associated profile"""
         return f"{obj.user.first_name} {obj.user.last_name}".strip()
+    
+    def get_assigned_clients(self, obj):
+        """Get list of assigned clients with basic info"""
+        try:
+            assignments = obj.assignments.select_related('profile').all()
+            return [{
+                'id': str(assignment.profile.id),
+                'name': f"{assignment.profile.first_name} {assignment.profile.last_name}",
+                'email': assignment.profile.email,
+                'phone': assignment.profile.phone,
+                'status': assignment.status,
+                'priority': assignment.priority,
+                'assigned_at': assignment.assigned_at,
+                'last_activity': assignment.last_activity
+            } for assignment in assignments]
+        except Exception:
+            return []
 
 
 class RecruiterAdminUpdateSerializer(serializers.ModelSerializer):
