@@ -7,6 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
+from django.db import models as django_models
 
 
 class LoginView(TokenObtainPairView):
@@ -87,19 +88,238 @@ from .serializers import (
 )
 
 class UserList(generics.ListAPIView):
-    queryset = User.objects.all()
+    """
+    GET /api/users/ - List ALL users in the system
+    
+    Returns ALL users including clients, recruiters, and admins.
+    No filtering by user type - this shows everyone in the system.
+    
+    Query Parameters:
+        - active: Filter by active status (true/false)
+        - search: Search by email
+    
+    Permission: Admin only
+    
+    Example:
+        GET /api/users/
+        GET /api/users/?active=true
+        GET /api/users/?search=john@example.com
+    """
     serializer_class = UserPublicSerializer
     permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """Get all users in the system without filtering"""
+        queryset = User.objects.select_related('profile').order_by('-id')
+        
+        # Filter by active status
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            active_bool = active.lower() in ['true', '1', 'yes']
+            queryset = queryset.filter(profile__active=active_bool)
+        
+        # Search by email
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                django_models.Q(email__icontains=search) |
+                django_models.Q(profile__email__icontains=search)
+            )
+        
+        return queryset
+
+
+class ClientListView(generics.ListAPIView):
+    """
+    GET /api/clients/ - List CLIENTS ONLY (candidates seeking jobs)
+    
+    Excludes recruiters and admin users. Returns client users with their 
+    profile information, assignment status, and assigned recruiter details.
+    
+    Query Parameters:
+        - active: Filter by active status (true/false)
+        - has_recruiter: Filter by whether client has assigned recruiter (true/false)
+        - search: Search by name or email
+    
+    Permission: Admin only
+    
+    Example:
+        GET /api/clients/
+        GET /api/clients/?active=true
+        GET /api/clients/?has_recruiter=false
+    """
+    serializer_class = UserPublicSerializer
+    permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """Filter to show only clients (users without recruiter_profile)"""
+        queryset = User.objects.select_related('profile').exclude(
+            profile__recruiter_profile__isnull=False
+        ).order_by('-id')
+        
+        # Filter by active status
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            active_bool = active.lower() in ['true', '1', 'yes']
+            queryset = queryset.filter(profile__active=active_bool)
+        
+        # Filter by whether user has assigned recruiter
+        has_recruiter = self.request.query_params.get('has_recruiter', None)
+        if has_recruiter is not None:
+            if has_recruiter.lower() in ['true', '1', 'yes']:
+                queryset = queryset.filter(profile__assignment__recruiter__isnull=False)
+            else:
+                queryset = queryset.filter(profile__assignment__recruiter__isnull=True)
+        
+        # Search by name or email
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                django_models.Q(profile__first_name__icontains=search) |
+                django_models.Q(profile__last_name__icontains=search) |
+                django_models.Q(profile__email__icontains=search)
+            )
+        
+        return queryset
 
 class ProfileList(generics.ListCreateAPIView):
-    queryset = Profile.objects.select_related('user').all()
+    """
+    GET /api/users/profiles/ - List ALL user profiles in the system
+    POST /api/users/profiles/ - Create a new user profile
+    
+    Returns ALL profiles including clients, recruiters, and admins.
+    No filtering by user type - this shows all profile details for everyone.
+    
+    Query Parameters:
+        - active: Filter by active status (true/false)
+        - visa_status: Filter by visa status (F1-OPT, H1B, etc.)
+        - university: Filter by university name (partial match)
+        - major: Filter by major (partial match)
+        - search: Search by name or email
+    
+    Permission: Admin only
+    
+    Example:
+        GET /api/users/profiles/
+        GET /api/users/profiles/?active=true
+        GET /api/users/profiles/?visa_status=F1-OPT&university=MIT
+    """
     serializer_class = ProfileSerializer
     permission_classes = [IsAdminUser]
     
-    # Override to prevent Swagger from trying to generate form params from nested serializer
+    def get_queryset(self):
+        """Get all profiles in the system without filtering by user type"""
+        queryset = Profile.objects.select_related('user').order_by('-id')
+        
+        # Filter by active status
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            active_bool = active.lower() in ['true', '1', 'yes']
+            queryset = queryset.filter(active=active_bool)
+        
+        # Filter by visa status
+        visa_status = self.request.query_params.get('visa_status', None)
+        if visa_status:
+            queryset = queryset.filter(visa_status__icontains=visa_status)
+        
+        # Filter by university
+        university = self.request.query_params.get('university', None)
+        if university:
+            queryset = queryset.filter(university__icontains=university)
+        
+        # Filter by major
+        major = self.request.query_params.get('major', None)
+        if major:
+            queryset = queryset.filter(major__icontains=major)
+        
+        # Search by name or email
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                django_models.Q(first_name__icontains=search) |
+                django_models.Q(last_name__icontains=search) |
+                django_models.Q(email__icontains=search)
+            )
+        
+        return queryset
+    
     def get_serializer_class(self):
-        # For Swagger introspection, use the base serializer
-        # For actual operations, DRF will use ProfileSerializer
+        return ProfileSerializer
+
+
+class ClientProfileList(generics.ListCreateAPIView):
+    """
+    GET /api/clients/profiles/ - List CLIENT profiles with detailed information
+    POST /api/clients/profiles/ - Create a new client profile
+    
+    Returns detailed profile information for CLIENTS ONLY (excludes recruiters).
+    Includes personal details, education, visa status, assignment status, and recruiter info.
+    
+    Query Parameters:
+        - active: Filter by active status (true/false)
+        - has_recruiter: Filter by whether client has assigned recruiter (true/false)
+        - visa_status: Filter by visa status (F1-OPT, H1B, etc.)
+        - university: Filter by university name (partial match)
+        - major: Filter by major (partial match)
+        - search: Search by name or email
+    
+    Permission: Admin only
+    
+    Example:
+        GET /api/clients/profiles/
+        GET /api/clients/profiles/?active=true&visa_status=F1-OPT
+        GET /api/clients/profiles/?has_recruiter=false
+    """
+    serializer_class = ProfileSerializer
+    permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """Filter to show only client profiles (exclude recruiter profiles)"""
+        queryset = Profile.objects.select_related('user').exclude(
+            recruiter_profile__isnull=False
+        ).order_by('-id')
+        
+        # Filter by active status
+        active = self.request.query_params.get('active', None)
+        if active is not None:
+            active_bool = active.lower() in ['true', '1', 'yes']
+            queryset = queryset.filter(active=active_bool)
+        
+        # Filter by whether profile has assigned recruiter
+        has_recruiter = self.request.query_params.get('has_recruiter', None)
+        if has_recruiter is not None:
+            if has_recruiter.lower() in ['true', '1', 'yes']:
+                queryset = queryset.filter(assignment__recruiter__isnull=False)
+            else:
+                queryset = queryset.filter(assignment__recruiter__isnull=True)
+        
+        # Filter by visa status
+        visa_status = self.request.query_params.get('visa_status', None)
+        if visa_status:
+            queryset = queryset.filter(visa_status__icontains=visa_status)
+        
+        # Filter by university
+        university = self.request.query_params.get('university', None)
+        if university:
+            queryset = queryset.filter(university__icontains=university)
+        
+        # Filter by major
+        major = self.request.query_params.get('major', None)
+        if major:
+            queryset = queryset.filter(major__icontains=major)
+        
+        # Search by name or email
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                django_models.Q(first_name__icontains=search) |
+                django_models.Q(last_name__icontains=search) |
+                django_models.Q(email__icontains=search)
+            )
+        
+        return queryset
+    
+    def get_serializer_class(self):
         return ProfileSerializer
 
 class ProfileRetrieveUpdateDestroy(generics.RetrieveUpdateDestroyAPIView):

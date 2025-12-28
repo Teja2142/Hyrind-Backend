@@ -14,9 +14,65 @@ class UserSerializer(serializers.ModelSerializer):
 
 class UserPublicSerializer(serializers.ModelSerializer):
     profile_id = serializers.UUIDField(source='profile.id', read_only=True)
+    active = serializers.BooleanField(source='profile.active', read_only=True)
+    status = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
+    assignment_status = serializers.SerializerMethodField()
+    recruiter_info = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ('id', 'profile_id', 'email')  # Removed username
+        fields = ('id', 'profile_id', 'email', 'active', 'status', 'status_display', 'assignment_status', 'recruiter_info')
+    
+    def get_status(self, obj):
+        """Get simple status value based on active field"""
+        try:
+            return 'active' if obj.profile.active else 'inactive'
+        except Exception:
+            return 'inactive'
+    
+    def get_status_display(self, obj):
+        """Get human-readable status"""
+        try:
+            return 'Active' if obj.profile.active else 'Inactive'
+        except Exception:
+            return 'Inactive'
+    
+    def get_assignment_status(self, obj):
+        """Get client's assignment status to a recruiter"""
+        try:
+            assignment = obj.profile.assignment
+            return {
+                'status': assignment.status,
+                'priority': assignment.priority,
+                'assigned_at': assignment.assigned_at,
+                'last_activity': assignment.last_activity
+            }
+        except Exception:
+            return None
+    
+    def get_recruiter_info(self, obj):
+        """Get assigned recruiter information"""
+        try:
+            assignment = obj.profile.assignment
+            if assignment.recruiter:
+                recruiter = assignment.recruiter
+                return {
+                    'id': str(recruiter.id),
+                    'name': recruiter.name,
+                    'email': recruiter.email,
+                    'employee_id': recruiter.employee_id,
+                    'phone': recruiter.phone,
+                    'department': recruiter.department,
+                    'department_display': recruiter.get_department_display(),
+                    'specialization': recruiter.specialization,
+                    'specialization_display': recruiter.get_specialization_display(),
+                    'status': recruiter.status,
+                    'active': recruiter.active
+                }
+        except Exception:
+            pass
+        return None
 
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)  # nested user is read-only for responses
