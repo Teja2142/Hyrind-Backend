@@ -1003,15 +1003,16 @@ class CandidateActivateView(generics.GenericAPIView):
             subject, text_content, html_content = UserActivationEmailTemplate.get_activation_email(user_data)
             
             # Send email using central EmailService
-            try:
-                EmailService.send_email(
-                    subject,
-                    text_content,
-                    html_content,
-                    to_emails=[profile.email]
-                )
+            success = EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[profile.email]
+            )
+            
+            if success:
                 logger.info(f"Activation email sent successfully to {profile.email}")
-            except Exception:
+            else:
                 logger.warning(f"Failed to send activation email to {profile.email}")
                 
         except Exception as e:
@@ -1093,31 +1094,29 @@ class CandidateDeactivateView(generics.GenericAPIView):
             profile = Profile.objects.get(id=id)
             
             # Toggle underlying Django User.is_active to prevent login
-                # Toggle underlying Django User.is_active to prevent login
             try:
                 user = profile.user
                 user.is_active = False
                 user.save(update_fields=['is_active'])
-            except Exception:
-                pass
-            # Mirror on profile
-            try:
+                # Mirror on profile
                 profile.active = False
                 profile.save(update_fields=['active'])
             except Exception:
+                # If no linked User, just deactivate profile
+                profile.active = False
+                profile.save(update_fields=['active'])
+            
+            # Log the deactivation
+            try:
+                from audit.utils import log_action
+                log_action(
+                    actor=request.user,
+                    action='candidate_deactivated',
+                    target=f'Profile:{profile.id}',
+                    metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
+                )
+            except Exception:
                 pass
-                
-                # Log the deactivation
-                try:
-                    from audit.utils import log_action
-                    log_action(
-                        actor=request.user,
-                        action='candidate_deactivated',
-                        target=f'Profile:{profile.id}',
-                        metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
-                    )
-                except Exception:
-                    pass
             
             serializer = self.get_serializer(profile)
             return Response({
@@ -1126,8 +1125,8 @@ class CandidateDeactivateView(generics.GenericAPIView):
                 'data': {
                     'profile': serializer.data,
                     'status': 'inactive',
-                    'is_active': profile.active,  # Use actual DB value
-                    'deactivated_at': profile.user.last_login
+                    'is_active': profile.active,
+                    'deactivated_at': None  # Could use timezone.now() if tracking deactivation time
                 }
             }, status=status.HTTP_200_OK)
         

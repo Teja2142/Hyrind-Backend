@@ -595,15 +595,16 @@ class RecruiterActivateView(generics.GenericAPIView):
             subject, text_content, html_content = RecruiterActivationEmailTemplate.get_activation_email(recruiter_data)
             
             # Send email using central EmailService
-            try:
-                EmailService.send_email(
-                    subject,
-                    text_content,
-                    html_content,
-                    to_emails=[recruiter.email]
-                )
+            success = EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[recruiter.email]
+            )
+            
+            if success:
                 logger.info(f"Activation email sent successfully to recruiter {recruiter.email}")
-            except Exception:
+            else:
                 logger.warning(f"Failed to send activation email to recruiter {recruiter.email}")
                 
         except Exception as e:
@@ -700,12 +701,20 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
     def post(self, request, *args, **kwargs):
         recruiter_id = request.data.get('recruiter_id')
         profile = self.get_profile()
-        onboarding = Onboarding.objects.get(profile=profile)
-        if not onboarding.completed:
-            return Response(
-                {'detail': 'Onboarding not completed.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        
+        # Check if onboarding exists and is completed
+        try:
+            onboarding = Onboarding.objects.get(profile=profile)
+            if not onboarding.completed:
+                return Response(
+                    {'detail': 'Onboarding not completed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Onboarding.DoesNotExist:
+            # If no onboarding record exists, create one or allow assignment anyway
+            # For admin-initiated assignments, we'll allow the assignment without onboarding
+            pass
+        
         assignment, _ = Assignment.objects.get_or_create(profile=profile)
         assignment.recruiter_id = recruiter_id
         assignment.save()
