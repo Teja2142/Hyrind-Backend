@@ -475,17 +475,6 @@ class RecruiterDetailView(generics.RetrieveUpdateDestroyAPIView):
         recruiter.save()
         
         # Log the deactivation
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='recruiter_deactivated',
-                target=f'Recruiter:{recruiter.id}',
-                metadata={'email': recruiter.email, 'name': recruiter.name}
-            )
-        except Exception:
-            pass
-        
         return Response(
             {'message': 'Recruiter deactivated successfully'},
             status=status.HTTP_204_NO_CONTENT
@@ -543,17 +532,6 @@ class RecruiterActivateView(generics.GenericAPIView):
         self._send_activation_email_to_recruiter(recruiter)
         
         # Log the activation
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='recruiter_activated',
-                target=f'Recruiter:{recruiter.id}',
-                metadata={'email': recruiter.email, 'name': recruiter.name}
-            )
-        except Exception:
-            pass
-        
         serializer = RecruiterSerializer(recruiter)
         return Response({
             'success': True,
@@ -654,17 +632,6 @@ class RecruiterDeactivateView(generics.GenericAPIView):
         recruiter.save(update_fields=['active', 'status'])
         
         # Log the deactivation
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='recruiter_deactivated',
-                target=f'Recruiter:{recruiter.id}',
-                metadata={'email': recruiter.email, 'name': recruiter.name}
-            )
-        except Exception:
-            pass
-        
         serializer = RecruiterSerializer(recruiter)
         return Response({
             'success': True,
@@ -776,17 +743,6 @@ class RecruiterRegistrationFormCreateView(generics.CreateAPIView):
         instance = serializer.save()
         
         # Log the registration
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=None,
-                action='recruiter_registration_form_submitted',
-                target=f'RecruiterRegistration:{instance.id}',
-                metadata={'email': instance.email, 'name': instance.full_name}
-            )
-        except Exception:
-            pass
-        
         return Response({
             'message': 'Recruiter registration form submitted successfully',
             'id': str(instance.id),
@@ -985,29 +941,9 @@ class RecruiterRegistrationFormVerifyView(generics.GenericAPIView):
 
             except Exception:
                 # If any of the auto-create steps fail, continue but log via audit
-                try:
-                    from audit.utils import log_action
-                    log_action(
-                        actor=request.user,
-                        action='recruiter_verification_auto_create_failed',
-                        target=f'RecruiterRegistration:{registration.id}',
-                        metadata={'email': registration.email}
-                    )
-                except Exception:
-                    pass
-            
-            # Log the verification
-            try:
-                from audit.utils import log_action
-                log_action(
-                    actor=request.user,
-                    action='recruiter_registration_verified',
-                    target=f'RecruiterRegistration:{registration.id}',
-                    metadata={'email': registration.email, 'name': registration.full_name}
-                )
-            except Exception:
                 pass
             
+            # Log the verification
             serializer = RecruiterRegistrationFormSerializer(registration)
             return Response({
                 'message': 'Recruiter registration verified successfully',

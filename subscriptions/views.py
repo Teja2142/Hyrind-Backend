@@ -1,6 +1,6 @@
 import razorpay
 from django.conf import settings
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count, Avg
 from django.utils import timezone
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -197,17 +197,6 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
         subscription.cancel()
         
         # Log action
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='subscription_cancelled',
-                target=f'UserSubscription:{subscription.id}',
-                metadata={'plan': subscription.plan.name}
-            )
-        except Exception:
-            pass
-
         # Send cancellation email to user
         try:
             from utils.email_service import EmailService, SubscriptionEmailTemplate
@@ -222,8 +211,15 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def summary(self, request):
         """
-        Get user's subscription summary
+        Get user's subscription summary for dashboard
         GET /api/subscriptions/my-subscriptions/summary/
+        
+        Returns:
+            - Active subscriptions (base + add-ons)
+            - Monthly cost breakdown
+            - Next billing date and amount
+            - Total spent (lifetime)
+            - Recent billing history (last 5)
         """
         if not hasattr(request.user, 'profile'):
             return Response(
@@ -243,9 +239,20 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
         # Calculate monthly cost
         monthly_cost = subscriptions.aggregate(total=Sum('price'))['total'] or 0
         
-        # Get next billing date
-        next_billing_dates = subscriptions.exclude(next_billing_date__isnull=True).values_list('next_billing_date', flat=True)
-        next_billing_date = min(next_billing_dates) if next_billing_dates else None
+        # Get next billing date and amount
+        next_billing_dates = subscriptions.exclude(next_billing_date__isnull=True).order_by('next_billing_date')
+        next_billing = next_billing_dates.first() if next_billing_dates.exists() else None
+        
+        # Calculate total spent (lifetime)
+        total_spent = BillingHistory.objects.filter(
+            user_subscription__profile=profile,
+            status='success'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Get recent billing history (last 5 transactions)
+        recent_billing = BillingHistory.objects.filter(
+            user_subscription__profile=profile
+        ).order_by('-created_at')[:5]
         
         data = {
             'total_subscriptions': subscriptions.count(),
@@ -253,7 +260,10 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
             'monthly_cost': monthly_cost,
             'base_subscription': UserSubscriptionSerializer(base_subscription).data if base_subscription else None,
             'addons': UserSubscriptionSerializer(addons, many=True).data,
-            'next_billing_date': next_billing_date,
+            'next_billing_date': next_billing.next_billing_date if next_billing else None,
+            'next_billing_amount': next_billing.price if next_billing else None,
+            'total_spent_lifetime': total_spent,
+            'recent_transactions': BillingHistorySerializer(recent_billing, many=True).data,
         }
         
         return Response(data)
@@ -298,20 +308,202 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
 
 class BillingHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Billing history for current user
-    GET /api/subscriptions/billing-history/ - List all billing records
+    Billing history for current user (User Dashboard)
+    GET /api/subscriptions/billing-history/ - List all billing records for logged-in user
     GET /api/subscriptions/billing-history/{id}/ - Get specific billing record
+    
+    Query Parameters:
+        - status: Filter by status (pending, success, failed, refunded)
+        - start_date: Filter records from this date (YYYY-MM-DD)
+        - end_date: Filter records to this date (YYYY-MM-DD)
+    
+    Example:
+        GET /api/subscriptions/billing-history/?status=success
+        GET /api/subscriptions/billing-history/?start_date=2024-01-01&end_date=2024-12-31
     """
     serializer_class = BillingHistorySerializer
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        """Return billing history for current user only"""
-        if hasattr(self.request.user, 'profile'):
-            return BillingHistory.objects.filter(
-                user_subscription__profile=self.request.user.profile
+        """Return billing history for current user only with filtering"""
+        if not hasattr(self.request.user, 'profile'):
+            return BillingHistory.objects.none()
+        
+        queryset = BillingHistory.objects.filter(
+            user_subscription__profile=self.request.user.profile
+        ).select_related('user_subscription', 'user_subscription__plan')
+        
+        # Filter by status
+        billing_status = self.request.query_params.get('status')
+        if billing_status:
+            queryset = queryset.filter(status=billing_status)
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        
+        end_date = self.request.query_params.get('end_date')
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+        
+        return queryset.order_by('-created_at')
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """
+        Get billing statistics for current user
+        GET /api/subscriptions/billing-history/statistics/
+        
+        Returns:
+            - Total spent (lifetime)
+            - Total spent (current year)
+            - Total spent (current month)
+            - Payment success rate
+            - Average transaction amount
+            - Transaction count by status
+        """
+        if not hasattr(request.user, 'profile'):
+            return Response(
+                {'error': 'User profile not found'},
+                status=status.HTTP_400_BAD_REQUEST
             )
-        return BillingHistory.objects.none()
+        
+        from datetime import datetime
+        from django.utils import timezone
+        
+        profile = request.user.profile
+        now = timezone.now()
+        
+        # All billing history for user
+        all_billing = BillingHistory.objects.filter(user_subscription__profile=profile)
+        
+        # Total spent lifetime
+        total_lifetime = all_billing.filter(status='success').aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        # Current year
+        year_start = datetime(now.year, 1, 1, tzinfo=timezone.get_current_timezone())
+        total_this_year = all_billing.filter(
+            status='success',
+            created_at__gte=year_start
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Current month
+        month_start = datetime(now.year, now.month, 1, tzinfo=timezone.get_current_timezone())
+        total_this_month = all_billing.filter(
+            status='success',
+            created_at__gte=month_start
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Transaction counts by status
+        status_breakdown = all_billing.values('status').annotate(
+            count=Count('id'),
+            total_amount=Sum('amount')
+        )
+        
+        # Success rate
+        total_count = all_billing.count()
+        success_count = all_billing.filter(status='success').count()
+        success_rate = (success_count / total_count * 100) if total_count > 0 else 0
+        
+        # Average transaction
+        avg_transaction = all_billing.filter(status='success').aggregate(
+            avg=Avg('amount')
+        )['avg'] or 0
+        
+        data = {
+            'total_spent': {
+                'lifetime': float(total_lifetime),
+                'this_year': float(total_this_year),
+                'this_month': float(total_this_month)
+            },
+            'transactions': {
+                'total_count': total_count,
+                'success_count': success_count,
+                'success_rate_percentage': round(success_rate, 2),
+                'average_amount': float(avg_transaction),
+                'by_status': list(status_breakdown)
+            }
+        }
+        
+        return Response(data)
+
+
+class AdminBillingHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Admin endpoint for viewing ALL billing history across all users
+    GET /api/subscriptions/admin/billing-history/ - List all billing records
+    GET /api/subscriptions/admin/billing-history/{id}/ - Get specific billing record
+    
+    Query Parameters:
+        - profile_id: Filter by specific user profile (UUID)
+        - status: Filter by status (pending, success, failed, refunded)
+        - start_date: Filter records from this date (YYYY-MM-DD)
+        - end_date: Filter records to this date (YYYY-MM-DD)
+        - min_amount: Minimum transaction amount
+        - max_amount: Maximum transaction amount
+        - search: Search by user name or email
+    
+    Permission: Admin only
+    
+    Example:
+        GET /api/subscriptions/admin/billing-history/?status=success
+        GET /api/subscriptions/admin/billing-history/?profile_id=<uuid>
+        GET /api/subscriptions/admin/billing-history/?start_date=2024-01-01&status=failed
+        GET /api/subscriptions/admin/billing-history/?search=john
+    """
+    serializer_class = BillingHistorySerializer
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get_queryset(self):
+        """Return all billing history with admin-level filtering"""
+        queryset = BillingHistory.objects.all().select_related(
+            'user_subscription',
+            'user_subscription__plan',
+            'user_subscription__profile'
+        )
+        
+        # Filter by profile
+        profile_id = self.request.query_params.get('profile_id')
+        if profile_id:
+            queryset = queryset.filter(user_subscription__profile__id=profile_id)
+        
+        # Filter by status
+        billing_status = self.request.query_params.get('status')
+        if billing_status:
+            queryset = queryset.filter(status=billing_status)
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        
+        end_date = self.request.query_params.get('end_date')
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
+        
+        # Filter by amount range
+        min_amount = self.request.query_params.get('min_amount')
+        if min_amount:
+            queryset = queryset.filter(amount__gte=min_amount)
+        
+        max_amount = self.request.query_params.get('max_amount')
+        if max_amount:
+            queryset = queryset.filter(amount__lte=max_amount)
+        
+        # Search by user name or email
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(user_subscription__profile__first_name__icontains=search) |
+                Q(user_subscription__profile__last_name__icontains=search) |
+                Q(user_subscription__profile__email__icontains=search)
+            )
+        
+        return queryset.order_by('-created_at')
 
 
 class AdminUserSubscriptionViewSet(viewsets.ModelViewSet):
@@ -389,6 +581,132 @@ class AdminUserSubscriptionViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             pass
+    
+    @action(detail=False, methods=['get'])
+    def analytics(self, request):
+        """
+        Get comprehensive subscription analytics for admin dashboard
+        GET /api/subscriptions/admin/subscriptions/analytics/
+        
+        Query Parameters:
+            - period: 'today', 'week', 'month', 'year', 'all' (default: 'month')
+        
+        Returns:
+            - Total active subscriptions
+            - Monthly Recurring Revenue (MRR)
+            - Total revenue (by period)
+            - Failed payments count
+            - Subscription breakdown by plan
+            - Revenue by plan type
+            - Recent failed payments
+            - Growth metrics
+        """
+        from datetime import datetime, timedelta
+        from django.db.models import Count, Sum, Avg
+        from django.utils import timezone
+        
+        # Get period filter
+        period = request.query_params.get('period', 'month')
+        now = timezone.now()
+        
+        if period == 'today':
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == 'week':
+            start_date = now - timedelta(days=7)
+        elif period == 'month':
+            start_date = now - timedelta(days=30)
+        elif period == 'year':
+            start_date = now - timedelta(days=365)
+        else:  # 'all'
+            start_date = datetime(2000, 1, 1, tzinfo=timezone.get_current_timezone())
+        
+        # Active subscriptions
+        active_subs = UserSubscription.objects.filter(status='active')
+        total_active = active_subs.count()
+        
+        # Monthly Recurring Revenue (MRR)
+        mrr = active_subs.filter(plan__billing_cycle='monthly').aggregate(
+            total=Sum('price')
+        )['total'] or 0
+        
+        # Total revenue for period
+        period_revenue = BillingHistory.objects.filter(
+            status='success',
+            created_at__gte=start_date
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # Failed payments in period
+        failed_payments = BillingHistory.objects.filter(
+            status='failed',
+            created_at__gte=start_date
+        ).count()
+        
+        # Subscription breakdown by plan
+        subscription_by_plan = active_subs.values(
+            'plan__name', 'plan__plan_type'
+        ).annotate(
+            count=Count('id'),
+            total_revenue=Sum('price')
+        ).order_by('-count')
+        
+        # Revenue by plan type
+        revenue_by_type = active_subs.values('plan__plan_type').annotate(
+            count=Count('id'),
+            revenue=Sum('price')
+        )
+        
+        # Recent failed payments (last 10)
+        recent_failures = BillingHistory.objects.filter(
+            status='failed'
+        ).select_related(
+            'user_subscription__profile',
+            'user_subscription__plan'
+        ).order_by('-created_at')[:10]
+        
+        # Calculate growth (compare to previous period)
+        previous_start = start_date - (now - start_date)
+        previous_revenue = BillingHistory.objects.filter(
+            status='success',
+            created_at__gte=previous_start,
+            created_at__lt=start_date
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        revenue_growth = 0
+        if previous_revenue > 0:
+            revenue_growth = ((period_revenue - previous_revenue) / previous_revenue) * 100
+        
+        # Total customers with active subscriptions
+        total_customers = active_subs.values('profile').distinct().count()
+        
+        # Average revenue per user
+        arpu = (period_revenue / total_customers) if total_customers > 0 else 0
+        
+        data = {
+            'period': period,
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': now.isoformat()
+            },
+            'subscriptions': {
+                'total_active': total_active,
+                'total_customers': total_customers,
+                'by_plan': list(subscription_by_plan),
+                'by_type': list(revenue_by_type)
+            },
+            'revenue': {
+                'mrr': float(mrr),
+                'period_total': float(period_revenue),
+                'previous_period': float(previous_revenue),
+                'growth_percentage': round(revenue_growth, 2),
+                'average_per_user': float(arpu)
+            },
+            'payments': {
+                'failed_count': failed_payments,
+                'recent_failures': BillingHistorySerializer(recent_failures, many=True).data
+            }
+        }
+        
+        return Response(data)
 
 
 class SubscriptionPaymentWebhookView(APIView):

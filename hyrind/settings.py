@@ -11,18 +11,24 @@ SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
 DEBUG = True
 
+# Define URL constants to avoid duplication
+API_DOMAIN = 'https://api.hyrind.com'
+API_STAGING_DOMAIN = 'https://api-staging.hyrind.com'
+STAGING_DOMAIN = 'https://staging.hyrind.com'
+PRODUCTION_DOMAIN = 'https://hyrind.com'
+
 # Normalize ALLOWED_HOSTS: list hostnames only (no scheme or port).
 # Keep '*' if you still want to allow all hosts during development, but
 # in production prefer a specific list or use an env var.
 ALLOWED_HOSTS = [
     '*',
-    'https://api.hyrind.com',
+    API_DOMAIN,
     'http://82.29.164.112',
-    'https://api-staging.hyrind.com',
+    API_STAGING_DOMAIN,
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    'https://staging.hyrind.com',
-    'https://hyrind.com',
+    STAGING_DOMAIN,
+    PRODUCTION_DOMAIN,
 ]
 
 INSTALLED_APPS = [
@@ -80,20 +86,20 @@ MIDDLEWARE = [
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    'https://api.hyrind.com',
-    'https://hyrind.com',
-    'https://api-staging.hyrind.com',
+    API_DOMAIN,
+    PRODUCTION_DOMAIN,
+    API_STAGING_DOMAIN,
     'http://localhost:5173',
-    'https://staging.hyrind.com'
+    STAGING_DOMAIN
 ]
 
 # Trusted origins for Django's CSRF Origin check. Add production API/domain origins here.
 # Include the scheme (https://) as required by Django.
 CSRF_TRUSTED_ORIGINS = [
-    'https://api.hyrind.com',
-    'https://hyrind.com',
-    'https://api-staging.hyrind.com',
-    'https://staging.hyrind.com',
+    API_DOMAIN,
+    PRODUCTION_DOMAIN,
+    API_STAGING_DOMAIN,
+    STAGING_DOMAIN,
     
 ]
 

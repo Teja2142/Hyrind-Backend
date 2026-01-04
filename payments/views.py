@@ -89,7 +89,7 @@ class CreateRazorpayOrderView(APIView):
 
         try:
             razorpay_order = client.order.create(data=order_payload)
-        except Exception as exc:
+        except Exception:
             logger.exception('Failed to create Razorpay order')
             payment.status = Payment.STATUS_FAILED
             payment.save(update_fields=['status'])
@@ -134,7 +134,7 @@ class VerifyRazorpayPaymentView(APIView):
                 'razorpay_payment_id': razorpay_payment_id,
                 'razorpay_signature': signature
             })
-        except Exception as exc:
+        except Exception:
             logger.exception('Razorpay signature verification failed')
             return Response({'detail': 'Signature verification failed'}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -8,6 +8,10 @@ from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
 from django.db import models as django_models
+from django.conf import settings
+
+# Constants
+DEFAULT_OPERATIONS_EMAIL = 'hyrind.operations@gmail.com'
 
 
 class LoginView(TokenObtainPairView):
@@ -85,6 +89,9 @@ from .serializers import (
     ContactSerializer,
     UserPublicSerializer,
     AdminRegistrationSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordChangeSerializer,
 )
 
 class UserList(generics.ListAPIView):
@@ -407,7 +414,7 @@ class RegistrationView(generics.GenericAPIView):
             }
             
             subject, text_content, html_content = UserRegistrationEmailTemplate.get_admin_notification_email(user_data)
-            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+            operations_email = getattr(settings, 'OPERATIONS_EMAIL', DEFAULT_OPERATIONS_EMAIL)
             
             EmailService.send_email(
                 subject=subject,
@@ -449,7 +456,7 @@ class InterestSubmissionCreateView(generics.CreateAPIView):
             text_content = self._generate_text_email(instance)
             html_content = self._generate_html_email(instance)
             
-            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+            operations_email = getattr(settings, 'OPERATIONS_EMAIL', DEFAULT_OPERATIONS_EMAIL)
             from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@hyrind.com')
             
             email = EmailMultiAlternatives(
@@ -750,7 +757,7 @@ class ContactCreateView(generics.CreateAPIView):
             text_content = self._generate_text_email(instance)
             html_content = self._generate_html_email(instance)
             
-            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+            operations_email = getattr(settings, 'OPERATIONS_EMAIL', DEFAULT_OPERATIONS_EMAIL)
             from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@hyrind.com')
             
             email = EmailMultiAlternatives(
@@ -1107,22 +1114,55 @@ class AdminPasswordChangeView(generics.GenericAPIView):
         request.user.set_password(new_password)
         request.user.save()
         
-        # Log the password change
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='admin_password_changed',
-                target=f'User:{request.user.id}',
-                metadata={'user_id': request.user.id, 'email': request.user.email}
-            )
-        except Exception:
-            pass
-        
         return Response(
             {'message': 'Password changed successfully'},
             status=status.HTTP_200_OK
         )
+
+
+class AdminRegisterView(generics.GenericAPIView):
+    """
+    Admin registration endpoint - create new admin users
+    Only accessible by existing admin users
+    """
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminRegistrationSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Register a new admin user (admin only)",
+        operation_summary="Admin Registration",
+        request_body=AdminRegistrationSerializer,
+        responses={
+            201: openapi.Response(
+                'Admin user created successfully',
+                openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'email': openapi.Schema(type=openapi.TYPE_STRING),
+                        'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN)
+                    }
+                )
+            ),
+            400: "Bad Request - Validation errors",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def post(self, request, *args, **kwargs):
+        """Create a new admin user"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        out = {
+            'id': user.id,
+            'email': user.email,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+        }
+        return Response(out, status=status.HTTP_201_CREATED)
 
 
 class CandidateActivateView(generics.GenericAPIView):
@@ -1149,7 +1189,8 @@ class CandidateActivateView(generics.GenericAPIView):
         """Activate a candidate"""
         try:
             profile = Profile.objects.get(id=id)
-        # Prefer toggling the underlying Django User.is_active flag
+            
+            # Prefer toggling the underlying Django User.is_active flag
             try:
                 user = profile.user
                 user.is_active = True
@@ -1167,19 +1208,7 @@ class CandidateActivateView(generics.GenericAPIView):
             except Exception:
                 # If no linked User, continue and respond
                 pass
-            
-            # Log the activation
-            try:
-                from audit.utils import log_action
-                log_action(
-                    actor=request.user,
-                    action='candidate_activated',
-                    target=f'Profile:{profile.id}',
-                    metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
-                )
-            except Exception:
-                pass
-            
+                
             serializer = self.get_serializer(profile)
             return Response({
                 'success': True,
@@ -1187,8 +1216,8 @@ class CandidateActivateView(generics.GenericAPIView):
                 'data': {
                     'profile': serializer.data,
                     'status': 'active',
-                    'is_active': profile.active,  # Use actual DB value
-                    'activated_at': profile.user.last_login  # Track when last active
+                    'is_active': profile.active,
+                    'activated_at': profile.user.last_login if hasattr(profile, 'user') else None
                 }
             }, status=status.HTTP_200_OK)
         
@@ -1236,62 +1265,15 @@ class CandidateActivateView(generics.GenericAPIView):
                 logger.warning(f"Failed to send activation email to {profile.email}")
                 
         except Exception as e:
-            # Log the error but don't fail the activation process
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Error sending activation email to {profile.email}: {str(e)}")
-
-
-class AdminRegisterView(generics.CreateAPIView):
-    """Create a new admin/staff user. Only existing admin users can call this endpoint.
-
-    Only superusers are allowed to create other superusers; staff users can create staff but not superusers.
-    """
-    permission_classes = [IsAdminUser]
-    serializer_class = None  # Will be set in post()
-
-    @swagger_auto_schema(
-        operation_description="Create a new admin/staff user (admin-only)",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['email', 'password', 'confirm_password'],
-            properties={
-                'email': openapi.Schema(type=openapi.TYPE_STRING, description='Admin email'),
-                'password': openapi.Schema(type=openapi.TYPE_STRING, description='Admin password'),
-                'confirm_password': openapi.Schema(type=openapi.TYPE_STRING, description='Confirm password'),
-                'first_name': openapi.Schema(type=openapi.TYPE_STRING, description='First name (optional)'),
-                'last_name': openapi.Schema(type=openapi.TYPE_STRING, description='Last name (optional)'),
-                'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Staff status (default: true)'),
-                'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Superuser status (default: false)'),
-            }
-        ),
-        responses={201: openapi.Response('Created'), 400: 'Validation error', 403: 'Forbidden'},
-        tags=['Admin']
-    )
-    def post(self, request, *args, **kwargs):
-        from .serializers import AdminRegistrationSerializer
-        
-        # Prevent non-superusers from creating superusers
-        is_super = bool(request.data.get('is_superuser'))
-        if is_super and not request.user.is_superuser:
-            return Response({'detail': 'Only superusers may create superuser accounts.'}, status=status.HTTP_403_FORBIDDEN)
-
-        serializer = AdminRegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-
-        out = {
-            'id': user.id,
-            'email': user.email,
-            'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser,
-        }
-        return Response(out, status=status.HTTP_201_CREATED)
+            logger.error(f"Error sending activation email: {str(e)}")
 
 
 class CandidateDeactivateView(generics.GenericAPIView):
     """
     Admin endpoint to deactivate a candidate profile.
+    Sets the candidate profile as inactive and disables login access.
     """
     permission_classes = [IsAdminUser]
     queryset = Profile.objects.all()
@@ -1313,31 +1295,19 @@ class CandidateDeactivateView(generics.GenericAPIView):
         try:
             profile = Profile.objects.get(id=id)
             
-            # Toggle underlying Django User.is_active to prevent login
+            # Prefer toggling the underlying Django User.is_active flag
             try:
                 user = profile.user
                 user.is_active = False
                 user.save(update_fields=['is_active'])
-                # Mirror on profile
+                # mirror on profile for clarity in admin UI
                 profile.active = False
                 profile.save(update_fields=['active'])
+                
             except Exception:
-                # If no linked User, just deactivate profile
-                profile.active = False
-                profile.save(update_fields=['active'])
-            
-            # Log the deactivation
-            try:
-                from audit.utils import log_action
-                log_action(
-                    actor=request.user,
-                    action='candidate_deactivated',
-                    target=f'Profile:{profile.id}',
-                    metadata={'email': profile.email, 'name': f'{profile.first_name} {profile.last_name}'}
-                )
-            except Exception:
+                # If no linked User, continue and respond
                 pass
-            
+                
             serializer = self.get_serializer(profile)
             return Response({
                 'success': True,
@@ -1346,7 +1316,7 @@ class CandidateDeactivateView(generics.GenericAPIView):
                     'profile': serializer.data,
                     'status': 'inactive',
                     'is_active': profile.active,
-                    'deactivated_at': None  # Could use timezone.now() if tracking deactivation time
+                    'deactivated_at': None
                 }
             }, status=status.HTTP_200_OK)
         
@@ -1355,3 +1325,207 @@ class CandidateDeactivateView(generics.GenericAPIView):
                 {'detail': 'Profile not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+# ============================================================================
+# PASSWORD RESET VIEWS
+# ============================================================================
+
+class PasswordResetRequestView(generics.GenericAPIView):
+    """
+    POST /api/users/password-reset/request/ - Request password reset (Forgot Password)
+    
+    Send password reset email to user. This is used on the login page when user
+    clicks "Forgot Password". Anyone can request a reset by providing an email.
+    
+    Request Body:
+        {
+            "email": "user@example.com"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "If an account exists with this email, you will receive password reset instructions."
+        }
+    
+    Note: For security, we always return success even if email doesn't exist.
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetRequestSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Request password reset link via email (Forgot Password flow)",
+        request_body=PasswordResetRequestSerializer,
+        responses={
+            200: openapi.Response(
+                'Reset link sent',
+                openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            )
+        }
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        email = serializer.validated_data['email']
+        
+        try:
+            user = User.objects.get(email=email)
+            
+            # Generate reset token
+            from .password_reset import generate_reset_token, send_password_reset_email
+            uid, token = generate_reset_token(user)
+            
+            # Construct reset link (frontend URL)
+            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+            reset_link = f"{frontend_url}/reset-password?uid={uid}&token={token}"
+            
+            # Send email
+            send_password_reset_email(user, reset_link)
+        
+        except User.DoesNotExist:
+            # For security, don't reveal if email exists
+            pass
+        
+        # Always return success message
+        return Response({
+            'success': True,
+            'message': 'If an account exists with this email, you will receive password reset instructions.'
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    """
+    POST /api/users/password-reset/confirm/ - Confirm password reset with token
+    
+    Reset password using the token sent via email. This is called after user
+    clicks the reset link in their email and submits new password.
+    
+    Request Body:
+        {
+            "uid": "MQ",
+            "token": "abc123...",
+            "new_password": "newpassword123",
+            "confirm_password": "newpassword123"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "Password has been reset successfully. You can now log in with your new password."
+        }
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Confirm password reset with token from email",
+        request_body=PasswordResetConfirmSerializer,
+        responses={
+            200: openapi.Response(
+                'Password reset successful',
+                openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            ),
+            400: 'Invalid or expired token'
+        }
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        uid = serializer.validated_data['uid']
+        token = serializer.validated_data['token']
+        new_password = serializer.validated_data['new_password']
+        
+        # Verify token and get user
+        from .password_reset import verify_reset_token
+        user = verify_reset_token(uid, token)
+        
+        if user is None:
+            return Response({
+                'success': False,
+                'message': 'Invalid or expired reset link. Please request a new password reset.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Password has been reset successfully. You can now log in with your new password.'
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordChangeView(generics.GenericAPIView):
+    """
+    POST /api/users/password-change/ - Change password (User Dashboard)
+    
+    Change password for authenticated user from dashboard settings.
+    User must provide current password for verification.
+    
+    Request Body:
+        {
+            "current_password": "oldpassword",
+            "new_password": "newpassword123",
+            "confirm_password": "newpassword123"
+        }
+    
+    Response:
+        {
+            "success": true,
+            "message": "Password changed successfully"
+        }
+    
+    Permission: Authenticated users only
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PasswordChangeSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Change password for authenticated user (Dashboard flow)",
+        request_body=PasswordChangeSerializer,
+        responses={
+            200: openapi.Response(
+                'Password changed successfully',
+                openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            ),
+            400: 'Validation error'
+        }
+    )
+    def post(self, request):
+        serializer = self.get_serializer(
+            data=request.data,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        
+        # Set new password
+        user = request.user
+        new_password = serializer.validated_data['new_password']
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Password changed successfully'
+        }, status=status.HTTP_200_OK)

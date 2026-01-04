@@ -492,3 +492,132 @@ class ContactSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'message': 'Message must not exceed 2000 characters.'})
         
         return data
+
+
+# ============================================================================
+# PASSWORD RESET SERIALIZERS
+# ============================================================================
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Serializer for password reset request (Forgot Password flow)
+    Used when user clicks "Forgot Password" on login page
+    """
+    email = serializers.EmailField(required=True)
+    
+    def validate_email(self, value):
+        """Validate that email exists in system"""
+        if not User.objects.filter(email=value).exists():
+            # For security, don't reveal if email exists or not
+            # Return success either way
+            pass
+        return value.lower()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer for confirming password reset with token
+    Used after user clicks reset link from email
+    """
+    uid = serializers.CharField(required=True)
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        style={'input_type': 'password'}
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        style={'input_type': 'password'}
+    )
+    
+    def validate(self, data):
+        """Validate passwords match"""
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError({
+                'confirm_password': 'Passwords do not match.'
+            })
+        
+        # Validate password strength
+        password = data['new_password']
+        if len(password) < 8:
+            raise serializers.ValidationError({
+                'new_password': 'Password must be at least 8 characters long.'
+            })
+        
+        # Check for at least one letter and one number
+        has_letter = any(c.isalpha() for c in password)
+        has_number = any(c.isdigit() for c in password)
+        
+        if not (has_letter and has_number):
+            raise serializers.ValidationError({
+                'new_password': 'Password must contain both letters and numbers.'
+            })
+        
+        return data
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    """
+    Serializer for changing password when user is logged in (Dashboard flow)
+    Used in user dashboard settings
+    """
+    current_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'}
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        style={'input_type': 'password'}
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+        style={'input_type': 'password'}
+    )
+    
+    def validate(self, data):
+        """Validate current password and new password requirements"""
+        # Check that new passwords match
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError({
+                'confirm_password': 'New passwords do not match.'
+            })
+        
+        # Validate password strength
+        password = data['new_password']
+        if len(password) < 8:
+            raise serializers.ValidationError({
+                'new_password': 'Password must be at least 8 characters long.'
+            })
+        
+        # Check for at least one letter and one number
+        has_letter = any(c.isalpha() for c in password)
+        has_number = any(c.isdigit() for c in password)
+        
+        if not (has_letter and has_number):
+            raise serializers.ValidationError({
+                'new_password': 'Password must contain both letters and numbers.'
+            })
+        
+        # Check that new password is different from current
+        if data['current_password'] == data['new_password']:
+            raise serializers.ValidationError({
+                'new_password': 'New password must be different from current password.'
+            })
+        
+        return data
+    
+    def validate_current_password(self, value):
+        """Validate current password is correct"""
+        user = self.context.get('request').user
+        if not user.check_password(value):
+            raise serializers.ValidationError('Current password is incorrect.')
+        return value

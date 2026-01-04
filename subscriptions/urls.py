@@ -8,6 +8,7 @@ router.register(r'plans', views.SubscriptionPlanViewSet, basename='subscription-
 router.register(r'my-subscriptions', views.UserSubscriptionViewSet, basename='user-subscription')
 router.register(r'billing-history', views.BillingHistoryViewSet, basename='billing-history')
 router.register(r'admin/subscriptions', views.AdminUserSubscriptionViewSet, basename='admin-subscription')
+router.register(r'admin/billing-history', views.AdminBillingHistoryViewSet, basename='admin-billing-history')
 
 urlpatterns = [
     # New subscription system (recommended)
