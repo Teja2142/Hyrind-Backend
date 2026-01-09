@@ -686,6 +686,13 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
         assignment.recruiter_id = recruiter_id
         assignment.save()
         
+        # Update profile status to "assigned" after recruiter assignment
+        try:
+            if profile.registration_status == 'ready_to_assign':
+                profile.update_status('assigned', notes=f'Assigned to recruiter: {assignment.recruiter.name if assignment.recruiter else "N/A"}')
+        except Exception:
+            pass
+        
         # Audit log
         try:
             from audit.utils import log_action

@@ -4,6 +4,17 @@ from django.contrib.auth.models import User
 
 
 class Profile(models.Model):
+    # Registration Status Choices
+    STATUS_CHOICES = [
+        ('open', 'Open - Awaiting Admin Review'),
+        ('approved', 'Approved - Ready for Payment'),
+        ('ready_to_assign', 'Ready to Assign - Payment Completed'),
+        ('assigned', 'Assigned - Recruiter Assigned'),
+        ('waiting_payment', 'Waiting for Payment - Payment Expired'),
+        ('closed', 'Closed - Candidate Placed'),
+        ('rejected', 'Rejected - Admin Rejected'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     first_name = models.CharField(max_length=50, blank=True)
@@ -11,6 +22,18 @@ class Profile(models.Model):
     email = models.EmailField(max_length=255)
     phone = models.CharField(max_length=20)
     active = models.BooleanField(default=False, help_text='Whether this profile is active and allowed to log in')
+    
+    # Registration Status
+    registration_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='open',
+        help_text='Current status in the registration and assignment workflow'
+    )
+    status_updated_at = models.DateTimeField(auto_now=True, help_text='Last status update timestamp')
+    status_notes = models.TextField(blank=True, help_text='Admin notes about status changes')
+    
+    # Existing fields
     university = models.CharField(max_length=100, blank=True)
     degree = models.CharField(max_length=100, blank=True)
     major = models.CharField(max_length=100, blank=True)
@@ -33,6 +56,31 @@ class Profile(models.Model):
 
     def __str__(self):
             return f"{self.first_name} {self.last_name}".strip()
+    
+    def update_status(self, new_status, notes=''):
+        """Update registration status with timestamp and notes, auto-manage active field"""
+        if new_status not in dict(self.STATUS_CHOICES):
+            raise ValueError(f"Invalid status: {new_status}")
+        
+        self.registration_status = new_status
+        if notes:
+            self.status_notes = notes
+        
+        # Auto-sync active field and User.is_active based on status
+        # Active statuses: approved, ready_to_assign, assigned
+        # Inactive statuses: open, rejected, closed, waiting_payment
+        if new_status in ['approved', 'ready_to_assign', 'assigned']:
+            self.active = True
+            if hasattr(self, 'user') and self.user:
+                self.user.is_active = True
+                self.user.save(update_fields=['is_active'])
+        else:
+            self.active = False
+            if hasattr(self, 'user') and self.user:
+                self.user.is_active = False
+                self.user.save(update_fields=['is_active'])
+        
+        self.save(update_fields=['registration_status', 'status_notes', 'status_updated_at', 'active'])
 
 
 class InterestSubmission(models.Model):

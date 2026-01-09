@@ -60,8 +60,14 @@ urlpatterns = [
     path('admin/register/', views.AdminRegisterView.as_view(), name='admin-register'),
     # Admin password change
     path('admin/password/', views.AdminPasswordChangeView.as_view(), name='admin-password-change'),
-    # Activate client account
+    
+    # ============================================================================
+    # ADMIN CANDIDATE MANAGEMENT (Status Workflow)
+    # ============================================================================
+    # Approve candidate registration (open → approved) - grants login access
     path('admin/candidates/<uuid:id>/activate/', views.CandidateActivateView.as_view(), name='candidate-activate'),
-    # Deactivate client account
+    # Reject candidate registration (any → rejected) - revokes login access
     path('admin/candidates/<uuid:id>/deactivate/', views.CandidateDeactivateView.as_view(), name='candidate-deactivate'),
+    # Mark candidate as placed (assigned → closed) - indicates successful placement
+    path('admin/candidates/<uuid:id>/placed/', views.CandidateMarkPlacedView.as_view(), name='candidate-placed'),
 ]

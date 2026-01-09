@@ -103,6 +103,7 @@ class UserList(generics.ListAPIView):
     
     Query Parameters:
         - active: Filter by active status (true/false)
+        - status: Filter by registration status (open/approved/ready_to_assign/assigned/waiting_payment/closed/rejected)
         - search: Search by email
     
     Permission: Admin only
@@ -110,6 +111,7 @@ class UserList(generics.ListAPIView):
     Example:
         GET /api/users/
         GET /api/users/?active=true
+        GET /api/users/?status=approved
         GET /api/users/?search=john@example.com
     """
     serializer_class = UserPublicSerializer
@@ -124,6 +126,11 @@ class UserList(generics.ListAPIView):
         if active is not None:
             active_bool = active.lower() in ['true', '1', 'yes']
             queryset = queryset.filter(profile__active=active_bool)
+        
+        # Filter by registration status
+        status = self.request.query_params.get('status', None)
+        if status:
+            queryset = queryset.filter(profile__registration_status=status)
         
         # Search by email
         search = self.request.query_params.get('search', None)
@@ -145,6 +152,7 @@ class ClientListView(generics.ListAPIView):
     
     Query Parameters:
         - active: Filter by active status (true/false)
+        - status: Filter by registration status (open/approved/ready_to_assign/assigned/waiting_payment/closed/rejected)
         - has_recruiter: Filter by whether client has assigned recruiter (true/false)
         - search: Search by name or email
     
@@ -153,6 +161,7 @@ class ClientListView(generics.ListAPIView):
     Example:
         GET /api/clients/
         GET /api/clients/?active=true
+        GET /api/clients/?status=approved
         GET /api/clients/?has_recruiter=false
     """
     serializer_class = UserPublicSerializer
@@ -169,6 +178,11 @@ class ClientListView(generics.ListAPIView):
         if active is not None:
             active_bool = active.lower() in ['true', '1', 'yes']
             queryset = queryset.filter(profile__active=active_bool)
+        
+        # Filter by registration status
+        status = self.request.query_params.get('status', None)
+        if status:
+            queryset = queryset.filter(profile__registration_status=status)
         
         # Filter by whether user has assigned recruiter
         has_recruiter = self.request.query_params.get('has_recruiter', None)
@@ -1167,8 +1181,9 @@ class AdminRegisterView(generics.GenericAPIView):
 
 class CandidateActivateView(generics.GenericAPIView):
     """
-    Admin endpoint to activate a candidate profile.
-    Sets the candidate profile as active and sends activation email.
+    Admin endpoint to APPROVE a candidate registration.
+    Changes status from 'open' to 'approved' and grants login access.
+    This replaces the old 'activate' concept with proper status workflow.
     """
     permission_classes = [IsAdminUser]
     queryset = Profile.objects.all()
@@ -1176,48 +1191,53 @@ class CandidateActivateView(generics.GenericAPIView):
     serializer_class = ProfileSerializer
     
     @swagger_auto_schema(
-        operation_description="Activate a candidate profile by UUID (admin only)",
-        operation_summary="Activate Candidate",
+        operation_description="Approve candidate registration - changes status to 'approved' and grants login access (admin only)",
+        operation_summary="Approve Candidate Registration",
         responses={
             200: ProfileSerializer,
             404: "Profile not found",
-            403: "Forbidden - Admin access required"
+            403: "Forbidden - Admin access required",
+            400: "Invalid status transition"
         },
         tags=['Admin']
     )
     def patch(self, request, id=None, *args, **kwargs):
-        """Activate a candidate"""
+        """Approve candidate registration"""
         try:
             profile = Profile.objects.get(id=id)
             
-            # Prefer toggling the underlying Django User.is_active flag
+            # Validate status transition
+            if profile.registration_status == 'rejected':
+                return Response(
+                    {'error': 'Cannot approve a rejected candidate. Status is already rejected.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if profile.registration_status == 'closed':
+                return Response(
+                    {'error': 'Cannot approve a closed candidate. Candidate is already placed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update status to 'approved' (this auto-activates login via update_status method)
+            profile.update_status('approved', notes=f'Approved by admin: {request.user.email}')
+            
+            # Send approval/activation email
             try:
-                user = profile.user
-                user.is_active = True
-                user.save(update_fields=['is_active'])
-                # mirror on profile for clarity in admin UI
-                profile.active = True
-                profile.save(update_fields=['active'])
-                
-                # Send activation email to the user
-                try:
-                    self._send_activation_email_to_user(profile)
-                except Exception:
-                    pass
-                
+                self._send_activation_email_to_user(profile)
             except Exception:
-                # If no linked User, continue and respond
                 pass
-                
+            
             serializer = self.get_serializer(profile)
             return Response({
                 'success': True,
-                'message': 'Candidate activated successfully',
+                'message': 'Candidate registration approved successfully. Candidate can now login.',
                 'data': {
                     'profile': serializer.data,
-                    'status': 'active',
-                    'is_active': profile.active,
-                    'activated_at': profile.user.last_login if hasattr(profile, 'user') else None
+                    'registration_status': profile.registration_status,
+                    'can_login': profile.active,
+                    'approved_at': profile.status_updated_at.isoformat() if profile.status_updated_at else None,
+                    'approved_by': request.user.email
                 }
             }, status=status.HTTP_200_OK)
         
@@ -1272,8 +1292,9 @@ class CandidateActivateView(generics.GenericAPIView):
 
 class CandidateDeactivateView(generics.GenericAPIView):
     """
-    Admin endpoint to deactivate a candidate profile.
-    Sets the candidate profile as inactive and disables login access.
+    Admin endpoint to REJECT a candidate registration.
+    Changes status to 'rejected' and revokes login access.
+    This replaces the old 'deactivate' concept with proper status workflow.
     """
     permission_classes = [IsAdminUser]
     queryset = Profile.objects.all()
@@ -1281,42 +1302,49 @@ class CandidateDeactivateView(generics.GenericAPIView):
     serializer_class = ProfileSerializer
     
     @swagger_auto_schema(
-        operation_description="Deactivate a candidate profile by UUID (admin only)",
-        operation_summary="Deactivate Candidate",
+        operation_description="Reject candidate registration - changes status to 'rejected' and revokes login access (admin only)",
+        operation_summary="Reject Candidate Registration",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'reason': openapi.Schema(type=openapi.TYPE_STRING, description='Optional rejection reason')
+            }
+        ),
         responses={
             200: ProfileSerializer,
             404: "Profile not found",
-            403: "Forbidden - Admin access required"
+            403: "Forbidden - Admin access required",
+            400: "Invalid status transition"
         },
         tags=['Admin']
     )
     def patch(self, request, id=None, *args, **kwargs):
-        """Deactivate a candidate"""
+        """Reject candidate registration"""
         try:
             profile = Profile.objects.get(id=id)
+            rejection_reason = request.data.get('reason', 'No reason provided')
             
-            # Prefer toggling the underlying Django User.is_active flag
-            try:
-                user = profile.user
-                user.is_active = False
-                user.save(update_fields=['is_active'])
-                # mirror on profile for clarity in admin UI
-                profile.active = False
-                profile.save(update_fields=['active'])
-                
-            except Exception:
-                # If no linked User, continue and respond
-                pass
-                
+            # Validate status transition
+            if profile.registration_status == 'closed':
+                return Response(
+                    {'error': 'Cannot reject a closed candidate. Candidate is already placed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update status to 'rejected' (this auto-deactivates login via update_status method)
+            profile.update_status('rejected', notes=f'Rejected by {request.user.email}: {rejection_reason}')
+            
             serializer = self.get_serializer(profile)
             return Response({
                 'success': True,
-                'message': 'Candidate deactivated successfully',
+                'message': 'Candidate registration rejected successfully. Login access revoked.',
                 'data': {
                     'profile': serializer.data,
-                    'status': 'inactive',
-                    'is_active': profile.active,
-                    'deactivated_at': None
+                    'registration_status': profile.registration_status,
+                    'can_login': profile.active,
+                    'rejected_at': profile.status_updated_at.isoformat() if profile.status_updated_at else None,
+                    'rejected_by': request.user.email,
+                    'rejection_reason': rejection_reason
                 }
             }, status=status.HTTP_200_OK)
         
@@ -1325,6 +1353,413 @@ class CandidateDeactivateView(generics.GenericAPIView):
                 {'detail': 'Profile not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class CandidateMarkPlacedView(generics.GenericAPIView):
+    """
+    Admin endpoint to mark a candidate as PLACED (Closed status).
+    This indicates the candidate has been successfully placed in a job.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Mark candidate as placed/closed - indicates successful job placement (admin only)",
+        operation_summary="Mark Candidate as Placed",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'placement_details': openapi.Schema(type=openapi.TYPE_STRING, description='Optional placement details (company, position, etc.)')
+            }
+        ),
+        responses={
+            200: ProfileSerializer,
+            404: "Profile not found",
+            403: "Forbidden - Admin access required",
+            400: "Invalid status transition"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Mark candidate as placed"""
+        try:
+            profile = Profile.objects.get(id=id)
+            placement_details = request.data.get('placement_details', 'Successfully placed')
+            
+            # Validate status transition - can only mark as placed if candidate is assigned
+            if profile.registration_status not in ['assigned', 'ready_to_assign']:
+                return Response(
+                    {'error': f'Cannot mark candidate as placed. Current status: {profile.registration_status}. Only assigned candidates can be marked as placed.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update status to 'closed' (successfully placed)
+            profile.update_status('closed', notes=f'Placed by {request.user.email}: {placement_details}')
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'success': True,
+                'message': 'Candidate marked as placed successfully. Status set to closed.',
+                'data': {
+                    'profile': serializer.data,
+                    'registration_status': profile.registration_status,
+                    'can_login': profile.active,
+                    'placed_at': profile.status_updated_at.isoformat() if profile.status_updated_at else None,
+                    'placed_by': request.user.email,
+                    'placement_details': placement_details
+                }
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+# ============================================================================
+# PASSWORD RESET VIEWS
+# ============================================================================
+
+
+class CandidateApproveView(generics.GenericAPIView):
+    """
+    Admin endpoint to approve a candidate registration.
+    Changes status from 'open' to 'approved' - candidate can now proceed to payment.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Approve candidate registration (admin only)",
+        operation_summary="Approve Candidate",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'notes': openapi.Schema(type=openapi.TYPE_STRING, description='Admin approval notes (optional)')
+            }
+        ),
+        responses={
+            200: ProfileSerializer,
+            400: "Invalid status transition",
+            404: "Profile not found",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Approve a candidate registration"""
+        try:
+            profile = Profile.objects.get(id=id)
+            notes = request.data.get('notes', '')
+            
+            # Validate status transition
+            if profile.registration_status not in ['open', 'rejected']:
+                return Response({
+                    'success': False,
+                    'message': f'Cannot approve candidate with status: {profile.get_registration_status_display()}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update status to approved
+            profile.update_status('approved', notes=notes or 'Registration approved by admin')
+            
+            # Send approval email to candidate
+            try:
+                self._send_approval_email(profile)
+            except Exception:
+                pass
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'success': True,
+                'message': 'Candidate approved successfully. They can now proceed to payment.',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    def _send_approval_email(self, profile):
+        """Send approval notification email to candidate"""
+        from utils.email_service import EmailService
+        
+        subject = f"✅ Application Approved - Next Steps"
+        text_content = f"""
+Dear {profile.first_name},
+
+Your registration has been approved! 
+
+Next Steps:
+1. Complete payment to activate your account
+2. Once payment is confirmed, you'll be assigned to a recruiter
+3. Your recruiter will guide you through the job placement process
+
+Please log in to your dashboard to proceed with payment.
+
+Best regards,
+Hyrind Team
+        """
+        
+        html_content = f"""
+<h2>Application Approved!</h2>
+<p>Dear {profile.first_name},</p>
+<p>Great news! Your registration has been approved.</p>
+<h3>Next Steps:</h3>
+<ol>
+    <li>Complete payment to activate your account</li>
+    <li>Once payment is confirmed, you'll be assigned to a recruiter</li>
+    <li>Your recruiter will guide you through the job placement process</li>
+</ol>
+<p>Please log in to your dashboard to proceed with payment.</p>
+<p>Best regards,<br>Hyrind Team</p>
+        """
+        
+        EmailService.send_email(
+            subject=subject,
+            text_content=text_content,
+            html_content=html_content,
+            to_emails=[profile.email]
+        )
+
+
+class CandidateRejectView(generics.GenericAPIView):
+    """
+    Admin endpoint to reject a candidate registration.
+    Changes status to 'rejected' - candidate will be notified.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Reject candidate registration (admin only)",
+        operation_summary="Reject Candidate",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['reason'],
+            properties={
+                'reason': openapi.Schema(type=openapi.TYPE_STRING, description='Reason for rejection')
+            }
+        ),
+        responses={
+            200: ProfileSerializer,
+            400: "Bad Request - Reason required",
+            404: "Profile not found",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Reject a candidate registration"""
+        try:
+            profile = Profile.objects.get(id=id)
+            reason = request.data.get('reason', '').strip()
+            
+            if not reason:
+                return Response({
+                    'success': False,
+                    'message': 'Rejection reason is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update status to rejected
+            profile.update_status('rejected', notes=f'Rejected: {reason}')
+            
+            # Deactivate user account
+            try:
+                profile.user.is_active = False
+                profile.user.save(update_fields=['is_active'])
+                profile.active = False
+                profile.save(update_fields=['active'])
+            except Exception:
+                pass
+            
+            # Send rejection email to candidate
+            try:
+                self._send_rejection_email(profile, reason)
+            except Exception:
+                pass
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'success': True,
+                'message': 'Candidate rejected.',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    def _send_rejection_email(self, profile, reason):
+        """Send rejection notification email to candidate"""
+        from utils.email_service import EmailService
+        
+        subject = f"Application Status Update"
+        text_content = f"""
+Dear {profile.first_name},
+
+Thank you for your interest in Hyrind's services.
+
+After careful review, we regret to inform you that we cannot proceed with your application at this time.
+
+Reason: {reason}
+
+If you have any questions or would like to discuss this further, please don't hesitate to contact us.
+
+Best regards,
+Hyrind Team
+        """
+        
+        html_content = f"""
+<h2>Application Status Update</h2>
+<p>Dear {profile.first_name},</p>
+<p>Thank you for your interest in Hyrind's services.</p>
+<p>After careful review, we regret to inform you that we cannot proceed with your application at this time.</p>
+<p><strong>Reason:</strong> {reason}</p>
+<p>If you have any questions or would like to discuss this further, please don't hesitate to contact us.</p>
+<p>Best regards,<br>Hyrind Team</p>
+        """
+        
+        EmailService.send_email(
+            subject=subject,
+            text_content=text_content,
+            html_content=html_content,
+            to_emails=[profile.email]
+        )
+
+
+class CandidatePlacedView(generics.GenericAPIView):
+    """
+    Admin/Recruiter endpoint to mark a candidate as placed (job found).
+    Changes status to 'closed' - successful placement completion.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = Profile.objects.all()
+    lookup_field = 'id'
+    serializer_class = ProfileSerializer
+    
+    @swagger_auto_schema(
+        operation_description="Mark candidate as successfully placed (admin/recruiter only)",
+        operation_summary="Mark Candidate Placed",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'company_name': openapi.Schema(type=openapi.TYPE_STRING, description='Company where placed'),
+                'position': openapi.Schema(type=openapi.TYPE_STRING, description='Job position/title'),
+                'notes': openapi.Schema(type=openapi.TYPE_STRING, description='Additional placement notes')
+            }
+        ),
+        responses={
+            200: ProfileSerializer,
+            400: "Invalid status transition",
+            404: "Profile not found",
+            403: "Forbidden - Admin access required"
+        },
+        tags=['Admin']
+    )
+    def patch(self, request, id=None, *args, **kwargs):
+        """Mark candidate as placed"""
+        try:
+            profile = Profile.objects.get(id=id)
+            company_name = request.data.get('company_name', '').strip()
+            position = request.data.get('position', '').strip()
+            notes = request.data.get('notes', '').strip()
+            
+            # Build placement notes
+            placement_info = []
+            if company_name:
+                placement_info.append(f'Company: {company_name}')
+            if position:
+                placement_info.append(f'Position: {position}')
+            if notes:
+                placement_info.append(f'Notes: {notes}')
+            
+            placement_notes = 'Successfully placed. ' + ' | '.join(placement_info) if placement_info else 'Successfully placed'
+            
+            # Update status to closed
+            profile.update_status('closed', notes=placement_notes)
+            
+            # Update assignment status if exists
+            try:
+                assignment = profile.assignment
+                assignment.status = 'placed'
+                assignment.save(update_fields=['status'])
+            except Exception:
+                pass
+            
+            # Send congratulations email to candidate
+            try:
+                self._send_placement_email(profile, company_name, position)
+            except Exception:
+                pass
+            
+            serializer = self.get_serializer(profile)
+            return Response({
+                'success': True,
+                'message': 'Candidate marked as successfully placed!',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        except Profile.DoesNotExist:
+            return Response(
+                {'detail': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    def _send_placement_email(self, profile, company_name='', position=''):
+        """Send congratulations email to placed candidate"""
+        from utils.email_service import EmailService
+        
+        subject = f"🎉 Congratulations on Your Placement!"
+        
+        placement_details = ''
+        if company_name and position:
+            placement_details = f"\n\nCompany: {company_name}\nPosition: {position}"
+        elif company_name:
+            placement_details = f"\n\nCompany: {company_name}"
+        elif position:
+            placement_details = f"\n\nPosition: {position}"
+        
+        text_content = f"""
+Dear {profile.first_name},
+
+Congratulations! We're thrilled to inform you that you've been successfully placed!{placement_details}
+
+This is a significant milestone in your career journey, and we're proud to have been part of your success story.
+
+We wish you all the best in your new role!
+
+Best regards,
+Hyrind Team
+        """
+        
+        html_content = f"""
+<h2>🎉 Congratulations on Your Placement!</h2>
+<p>Dear {profile.first_name},</p>
+<p>Congratulations! We're thrilled to inform you that you've been successfully placed!</p>
+{f'<p><strong>Company:</strong> {company_name}<br>' if company_name else ''}
+{f'<strong>Position:</strong> {position}</p>' if position else ''}
+<p>This is a significant milestone in your career journey, and we're proud to have been part of your success story.</p>
+<p>We wish you all the best in your new role!</p>
+<p>Best regards,<br>Hyrind Team</p>
+        """
+        
+        EmailService.send_email(
+            subject=subject,
+            text_content=text_content,
+            html_content=html_content,
+            to_emails=[profile.email]
+        )
 
 
 # ============================================================================

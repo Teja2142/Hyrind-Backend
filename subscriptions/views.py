@@ -157,6 +157,14 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
         subscription.razorpay_subscription_id = razorpay_payment_id
         subscription.activate()
         
+        # Update profile status to "ready_to_assign" after payment
+        try:
+            profile = subscription.profile
+            if profile.registration_status == 'approved':
+                profile.update_status('ready_to_assign', notes='Payment completed successfully')
+        except Exception:
+            pass
+        
         # Log action
         try:
             from audit.utils import log_action
@@ -761,6 +769,14 @@ class SubscriptionPaymentWebhookView(APIView):
         if payment_status == 'success' and subscription.status == 'pending':
             subscription.razorpay_subscription_id = razorpay_payment_id
             subscription.activate()
+            
+            # Update profile status to "ready_to_assign" after successful payment
+            try:
+                profile = subscription.profile
+                if profile.registration_status == 'approved':
+                    profile.update_status('ready_to_assign', notes='Payment completed successfully via webhook')
+            except Exception:
+                pass
         
         return Response({
             'message': 'Payment processed successfully',

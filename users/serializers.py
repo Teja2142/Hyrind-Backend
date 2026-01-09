@@ -15,28 +15,14 @@ class UserSerializer(serializers.ModelSerializer):
 class UserPublicSerializer(serializers.ModelSerializer):
     profile_id = serializers.UUIDField(source='profile.id', read_only=True)
     active = serializers.BooleanField(source='profile.active', read_only=True)
-    status = serializers.SerializerMethodField()
-    status_display = serializers.SerializerMethodField()
+    status = serializers.CharField(source='profile.registration_status', read_only=True)
+    status_label = serializers.CharField(source='profile.get_registration_status_display', read_only=True)
     assignment_status = serializers.SerializerMethodField()
     recruiter_info = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ('id', 'profile_id', 'email', 'active', 'status', 'status_display', 'assignment_status', 'recruiter_info')
-    
-    def get_status(self, obj):
-        """Get simple status value based on active field"""
-        try:
-            return 'active' if obj.profile.active else 'inactive'
-        except Exception:
-            return 'inactive'
-    
-    def get_status_display(self, obj):
-        """Get human-readable status"""
-        try:
-            return 'Active' if obj.profile.active else 'Inactive'
-        except Exception:
-            return 'Inactive'
+        fields = ('id', 'profile_id', 'email', 'active', 'status', 'status_label', 'assignment_status', 'recruiter_info')
     
     def get_assignment_status(self, obj):
         """Get client's assignment status to a recruiter"""
@@ -79,25 +65,23 @@ class ProfileSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), write_only=True, source='user', required=False)
     assignment_status = serializers.SerializerMethodField()
     recruiter_info = serializers.SerializerMethodField()
-    status = serializers.SerializerMethodField()
-    status_display = serializers.SerializerMethodField()
-
+    
+    # Status fields (Industry Standard naming)
+    status = serializers.CharField(source='registration_status', read_only=True)  # Current workflow status
+    status_label = serializers.CharField(source='get_registration_status_display', read_only=True)  # Human-readable label
+    
     class Meta:
         model = Profile
         fields = [
             'id', 'user', 'first_name', 'last_name', 'email', 'phone', 'university',
             'degree', 'major', 'visa_status', 'graduation_date', 'opt_end_date', 'resume_file', 'consent_to_terms',
-            'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id', 'active',
-            'status', 'status_display', 'assignment_status', 'recruiter_info'
+            'referral_source', 'linkedin_url', 'github_url', 'additional_notes', 'user_id',
+            # Status fields (Industry Standard)
+            'status', 'status_label', 'active', 'status_updated_at', 'status_notes',
+            # Assignment info
+            'assignment_status', 'recruiter_info'
         ]
-
-    def get_status(self, obj):
-        """Get simple status value based on active field"""
-        return 'active' if obj.active else 'inactive'
-    
-    def get_status_display(self, obj):
-        """Get human-readable status"""
-        return 'Active' if obj.active else 'Inactive'
+        read_only_fields = ['status', 'status_label', 'active', 'status_updated_at']
 
     def get_assignment_status(self, obj):
         """Get client's assignment status to a recruiter"""
