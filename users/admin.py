@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Profile, InterestSubmission, Contact
+from .models import Profile, InterestSubmission, Contact, ClientIntakeSheet, CredentialSheet
 from django.utils.html import format_html
 
 
@@ -356,3 +356,232 @@ class CustomUserAdmin(BaseUserAdmin):
 # Unregister the default User admin and register our custom one
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
+
+# ============================================================================
+# CLIENT INTAKE SHEET ADMIN
+# ============================================================================
+
+@admin.register(ClientIntakeSheet)
+class ClientIntakeSheetAdmin(admin.ModelAdmin):
+    """
+    Admin interface for Client Intake Sheets
+    View of all client intake form submissions
+    """
+    list_display = (
+        'id_short',
+        'full_name',
+        'email',
+        'visa_status',
+        'profile_link',
+        'submitted_status',
+        'submission_timestamp',
+        'editable_status'
+    )
+    
+    list_filter = (
+        'visa_status',
+        'is_editable',
+        'submission_timestamp',
+    )
+    
+    search_fields = (
+        'first_name',
+        'last_name',
+        'email',
+        'phone_number',
+        'visa_status',
+    )
+    
+    readonly_fields = (
+        'id',
+        'submission_timestamp',
+        'form_submitted_date',
+        'profile',
+    )
+    
+    fieldsets = (
+        ('Personal Information', {
+            'fields': ('profile', 'id', 'first_name', 'last_name', 'date_of_birth', 'phone_number', 'email', 'alternate_email')
+        }),
+        ('Contact Information', {
+            'fields': ('marketing_contact_number', 'marketing_email', 'current_address', 'mailing_address')
+        }),
+        ('Visa & Immigration', {
+            'fields': ('visa_status', 'first_entry_us', 'total_years_in_us')
+        }),
+        ('Skills', {
+            'fields': ('skilled_in', 'currently_learning', 'experienced_with', 'learning_tools', 'non_technical_skills'),
+            'classes': ('collapse',)
+        }),
+        ('Work Experience', {
+            'fields': (
+                'job_1_title', 'job_1_company', 'job_1_address', 'job_1_start_date', 'job_1_end_date', 'job_1_type', 'job_1_responsibilities',
+                'job_2_title', 'job_2_company', 'job_2_address', 'job_2_start_date', 'job_2_end_date', 'job_2_type', 'job_2_responsibilities',
+                'job_3_title', 'job_3_company', 'job_3_address', 'job_3_start_date', 'job_3_end_date', 'job_3_type', 'job_3_responsibilities',
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Education', {
+            'fields': (
+                'highest_degree', 'highest_field_of_study', 'highest_university', 'highest_country', 'highest_graduation_date',
+                'bachelors_degree', 'bachelors_field_of_study', 'bachelors_university', 'bachelors_country', 'bachelors_graduation_date',
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Certifications', {
+            'fields': ('certification_name', 'issuing_organization', 'issued_date'),
+            'classes': ('collapse',)
+        }),
+        ('Documents', {
+            'fields': ('passport_file', 'government_id_file', 'visa_file', 'work_authorization_file', 'resume_file'),
+        }),
+        ('Job Preferences', {
+            'fields': ('desired_job_role', 'desired_years_experience')
+        }),
+        ('Form Status', {
+            'fields': ('submission_timestamp', 'form_submitted_date', 'is_editable')
+        }),
+    )
+    
+    def id_short(self, obj):
+        return str(obj.id)[:8] + '...'
+    id_short.short_description = 'ID'
+    
+    def full_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}"
+    full_name.short_description = 'Full Name'
+    
+    def profile_link(self, obj):
+        return format_html(
+            '<a href="/admin/users/profile/{}/change/">{}</a>',
+            obj.profile.id,
+            obj.profile.first_name + ' ' + obj.profile.last_name
+        )
+    profile_link.short_description = 'Profile'
+    
+    def submitted_status(self, obj):
+        if obj.submission_timestamp:
+            return format_html(
+                '<span style="color: green;">✓ Submitted</span>'
+            )
+        return format_html(
+            '<span style="color: orange;">⊘ Draft</span>'
+        )
+    submitted_status.short_description = 'Status'
+    
+    def editable_status(self, obj):
+        if obj.is_editable:
+            return format_html(
+                '<span style="color: blue;">Editable</span>'
+            )
+        return format_html(
+            '<span style="color: red;">Locked</span>'
+        )
+    editable_status.short_description = 'Editable'
+
+
+# ============================================================================
+# CREDENTIAL SHEET ADMIN
+# ============================================================================
+
+@admin.register(CredentialSheet)
+class CredentialSheetAdmin(admin.ModelAdmin):
+    """
+    Admin interface for Credential Sheets
+    View of all credential form submissions with job platform credentials
+    """
+    list_display = (
+        'id_short',
+        'full_name',
+        'personal_email',
+        'profile_link',
+        'submitted_status',
+        'submission_timestamp',
+        'editable_status'
+    )
+    
+    list_filter = (
+        'is_editable',
+        'submission_timestamp',
+    )
+    
+    search_fields = (
+        'full_name',
+        'personal_email',
+        'phone_number',
+        'location',
+    )
+    
+    readonly_fields = (
+        'id',
+        'submission_timestamp',
+        'form_submitted_date',
+        'profile',
+    )
+    
+    fieldsets = (
+        ('Personal Information', {
+            'fields': ('profile', 'id', 'full_name', 'personal_email', 'phone_number', 'location')
+        }),
+        ('Education & OPT', {
+            'fields': (
+                'bachelor_graduation_date', 'first_entry_us', 'masters_graduation_date',
+                'opt_start_date', 'opt_offer_letter_submitted', 'opt_offer_letter_file'
+            )
+        }),
+        ('Job Preferences', {
+            'fields': ('preferred_job_roles', 'preferred_locations')
+        }),
+        ('Platform Credentials', {
+            'fields': (
+                'linkedin_username', 'linkedin_password',
+                'indeed_username', 'indeed_password',
+                'dice_username', 'dice_password',
+                'monster_username', 'monster_password',
+                'ziprecruiter_username', 'ziprecruiter_password',
+                'glassdoor_username', 'glassdoor_password',
+                'buildin_username', 'buildin_password',
+                'jobvite_username', 'jobvite_password',
+                'careerbuilder_username', 'careerbuilder_password',
+                'github_username', 'github_password',
+                'other_job_platform_accounts',
+            ),
+            'classes': ('collapse',),
+            'description': 'Job platform login credentials (stored securely)'
+        }),
+        ('Form Status', {
+            'fields': ('submission_timestamp', 'form_submitted_date', 'is_editable')
+        }),
+    )
+    
+    def id_short(self, obj):
+        return str(obj.id)[:8] + '...'
+    id_short.short_description = 'ID'
+    
+    def profile_link(self, obj):
+        return format_html(
+            '<a href="/admin/users/profile/{}/change/">{}</a>',
+            obj.profile.id,
+            obj.profile.first_name + ' ' + obj.profile.last_name
+        )
+    profile_link.short_description = 'Profile'
+    
+    def submitted_status(self, obj):
+        if obj.submission_timestamp:
+            return format_html(
+                '<span style="color: green;">✓ Submitted</span>'
+            )
+        return format_html(
+            '<span style="color: orange;">⊘ Draft</span>'
+        )
+    submitted_status.short_description = 'Status'
+    
+    def editable_status(self, obj):
+        if obj.is_editable:
+            return format_html(
+                '<span style="color: blue;">Editable</span>'
+            )
+        return format_html(
+            '<span style="color: red;">Locked</span>'
+        )
+    editable_status.short_description = 'Editable'

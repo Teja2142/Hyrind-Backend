@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Profile, InterestSubmission, Contact
+from .models import Profile, InterestSubmission, Contact, ClientIntakeSheet, CredentialSheet
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 import os
@@ -605,3 +605,140 @@ class PasswordChangeSerializer(serializers.Serializer):
         if not user.check_password(value):
             raise serializers.ValidationError('Current password is incorrect.')
         return value
+
+
+# ============ Comprehensive Profile Serializers ============
+
+class ClientIntakeSheetSerializer(serializers.ModelSerializer):
+    """Serializer for Client Intake Sheet - Full read and write"""
+    
+    profile_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ClientIntakeSheet
+        fields = '__all__'
+        read_only_fields = ['id', 'profile', 'submission_timestamp', 'form_submitted_date']
+    
+    def get_profile_name(self, obj):
+        if obj.profile:
+            return f"{obj.profile.first_name} {obj.profile.last_name}"
+        return None
+
+
+class ClientIntakeSheetCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating Client Intake Sheet"""
+    
+    class Meta:
+        model = ClientIntakeSheet
+        fields = [
+            'first_name', 'last_name', 'date_of_birth', 'phone_number', 'email',
+            'alternate_email', 'marketing_contact_number', 'marketing_email',
+            'current_address', 'mailing_address',
+            'visa_status', 'first_entry_us', 'total_years_in_us',
+            'skilled_in', 'currently_learning', 'experienced_with', 'learning_tools',
+            'non_technical_skills',
+            'job_1_title', 'job_1_company', 'job_1_address', 'job_1_start_date',
+            'job_1_end_date', 'job_1_type', 'job_1_responsibilities',
+            'job_2_title', 'job_2_company', 'job_2_address', 'job_2_start_date',
+            'job_2_end_date', 'job_2_type', 'job_2_responsibilities',
+            'job_3_title', 'job_3_company', 'job_3_address', 'job_3_start_date',
+            'job_3_end_date', 'job_3_type', 'job_3_responsibilities',
+            'highest_degree', 'highest_field_of_study', 'highest_university',
+            'highest_country', 'highest_graduation_date',
+            'bachelors_degree', 'bachelors_field_of_study', 'bachelors_university',
+            'bachelors_country', 'bachelors_graduation_date',
+            'certification_name', 'issuing_organization', 'issued_date',
+            'passport_file', 'government_id_file', 'visa_file',
+            'work_authorization_file', 'resume_file',
+            'desired_job_role', 'desired_years_experience',
+            'is_editable',
+        ]
+
+
+# ============ Credential Sheet Serializers ============
+
+class CredentialSheetSerializer(serializers.ModelSerializer):
+    """Serializer for Credential Sheet - Full read and write (passwords masked in response)"""
+    
+    profile_name = serializers.SerializerMethodField()
+    linkedin_password = serializers.SerializerMethodField()
+    indeed_password = serializers.SerializerMethodField()
+    dice_password = serializers.SerializerMethodField()
+    monster_password = serializers.SerializerMethodField()
+    ziprecruiter_password = serializers.SerializerMethodField()
+    glassdoor_password = serializers.SerializerMethodField()
+    buildin_password = serializers.SerializerMethodField()
+    jobvite_password = serializers.SerializerMethodField()
+    careerbuilder_password = serializers.SerializerMethodField()
+    github_password = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CredentialSheet
+        fields = '__all__'
+        read_only_fields = ['id', 'profile', 'submission_timestamp', 'form_submitted_date']
+    
+    def get_profile_name(self, obj):
+        if obj.profile:
+            return f"{obj.profile.first_name} {obj.profile.last_name}"
+        return None
+    
+    def _mask_password(self, password):
+        """Mask password in response"""
+        if password:
+            return '••••••' if len(password) > 0 else None
+        return None
+    
+    def get_linkedin_password(self, obj):
+        return self._mask_password(obj.linkedin_password)
+    
+    def get_indeed_password(self, obj):
+        return self._mask_password(obj.indeed_password)
+    
+    def get_dice_password(self, obj):
+        return self._mask_password(obj.dice_password)
+    
+    def get_monster_password(self, obj):
+        return self._mask_password(obj.monster_password)
+    
+    def get_ziprecruiter_password(self, obj):
+        return self._mask_password(obj.ziprecruiter_password)
+    
+    def get_glassdoor_password(self, obj):
+        return self._mask_password(obj.glassdoor_password)
+    
+    def get_buildin_password(self, obj):
+        return self._mask_password(obj.buildin_password)
+    
+    def get_jobvite_password(self, obj):
+        return self._mask_password(obj.jobvite_password)
+    
+    def get_careerbuilder_password(self, obj):
+        return self._mask_password(obj.careerbuilder_password)
+    
+    def get_github_password(self, obj):
+        return self._mask_password(obj.github_password)
+
+
+class CredentialSheetCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating Credential Sheet"""
+    
+    class Meta:
+        model = CredentialSheet
+        fields = [
+            'full_name', 'personal_email', 'phone_number', 'location',
+            'bachelor_graduation_date', 'first_entry_us', 'masters_graduation_date',
+            'opt_start_date', 'opt_offer_letter_submitted', 'opt_offer_letter_file',
+            'preferred_job_roles', 'preferred_locations',
+            'linkedin_username', 'linkedin_password',
+            'indeed_username', 'indeed_password',
+            'dice_username', 'dice_password',
+            'monster_username', 'monster_password',
+            'ziprecruiter_username', 'ziprecruiter_password',
+            'glassdoor_username', 'glassdoor_password',
+            'buildin_username', 'buildin_password',
+            'jobvite_username', 'jobvite_password',
+            'careerbuilder_username', 'careerbuilder_password',
+            'github_username', 'github_password',
+            'other_job_platform_accounts',
+            'is_editable',
+        ]

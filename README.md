@@ -434,20 +434,141 @@ JWT_REFRESH_TOKEN_LIFETIME=1440  # minutes (24 hours)
 
 ## 📚 API Documentation
 
-The API is fully documented using Swagger/OpenAPI 3.0.
+The API is fully documented using Swagger/OpenAPI 3.0 with comprehensive descriptions for every endpoint explaining what each API does, when to use it, and why it's needed.
 
-### Access Documentation
-- **Swagger UI**: http://127.0.0.1:8000/swagger/ (interactive)
-- **ReDoc**: http://127.0.0.1:8000/redoc/ (read-only)
-- **JSON Schema**: http://127.0.0.1:8000/swagger.json
+### Documentation Resources
+
+1. **Comprehensive API Guide**: [API_DOCUMENTATION_GUIDE.md](help_docs/API_DOCUMENTATION_GUIDE.md)
+   - Detailed explanation of every API endpoint
+   - What each API does and when to use it
+   - Request/response examples for all major endpoints
+   - Common workflows and integration patterns
+   - Status codes and error handling
+
+2. **Client Forms API**: [CLIENT_FORMS_API.md](help_docs/CLIENT_FORMS_API.md)
+   - Client Intake Sheet API details
+   - Credential Sheet API details
+   - Field validations and constraints
+   - Email notifications
+
+3. **Field Validations**: [CLIENT_FORMS_API_FIELD_VALIDATIONS.md](help_docs/CLIENT_FORMS_API_FIELD_VALIDATIONS.md)
+   - Complete field validation rules
+   - Choice/enum values for all fields
+   - Security practices and password handling
+   - Data constraints and business rules
+
+### Access Interactive API Documentation
+- **Swagger UI**: http://127.0.0.1:8000/swagger/ (interactive - test APIs directly)
+- **ReDoc**: http://127.0.0.1:8000/redoc/ (read-only - clean documentation view)
+- **JSON Schema**: http://127.0.0.1:8000/swagger.json (for code generation)
+
+### Understanding API Endpoints
+
+Each Swagger endpoint includes:
+- **Operation Summary**: What the API does in 1 sentence
+- **Operation Description**: When/why to use it and what it accomplishes
+- **Request Body**: Example input with field descriptions
+- **Response**: Example output with status codes
+- **Permissions**: Who can access (public, authenticated, admin, etc.)
+
+**Example**: The `/api/users/client-intake/` endpoint shows:
+```
+Summary: Create client intake sheet
+Description: Create a new client intake sheet for the authenticated user. 
+Only one form per user. If form exists, returns 409 with update URL.
+Purpose: Collect comprehensive candidate information for recruiter matching.
+```
 
 ### Using Swagger UI
 
+#### 1. **Test Public Endpoints** (No Authentication)
+```
+GET /api/users/register/         → Register new account
+GET /api/users/login/             → Login with email/password
+GET /api/users/interest/          → Submit interest form
+GET /api/users/contact/           → Submit contact form
+```
+- No "Authorize" needed for these endpoints
+- Click endpoint → "Try it out" → "Execute"
+
+#### 2. **Test Protected Endpoints** (Authentication Required)
 1. Navigate to http://127.0.0.1:8000/swagger/
-2. Click on any endpoint to see details
-3. For protected endpoints:
-   - Login via `/api/users/login/` to get JWT token
-   - Click **🔓 Authorize** button
+2. Find and click **POST `/api/users/login/`**
+3. Click "Try it out"
+4. Enter email and password
+5. Click "Execute"
+6. Copy the `access` token from response
+7. Click **🔓 Authorize** button (top right)
+8. Paste token as: `Bearer <your_access_token>`
+9. Click "Authorize" → "Close"
+10. Now test any protected endpoint
+
+#### 3. **Test Admin Endpoints**
+- Login with admin account via **POST `/api/users/admin/login/`**
+- Use admin token in Authorization
+- Access admin-only endpoints like:
+  - PATCH `/api/users/admin/candidates/<id>/activate/`
+  - PATCH `/api/users/admin/candidates/<id>/deactivate/`
+
+#### 4. **Test File Uploads**
+- Endpoints like POST `/api/users/client-intake/` accept file uploads
+- In Swagger, click "Choose File" for FileField parameters
+- Select resume.pdf, passport.jpg, etc.
+- Submit with other form fields
+
+### Example API Calls
+
+#### Register a New User
+```bash
+curl -X POST http://localhost:8000/api/users/register/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePass123!",
+    "first_name": "John",
+    "last_name": "Doe",
+    "phone": "+1-555-1234"
+  }'
+```
+
+#### Login and Get Token
+```bash
+curl -X POST http://localhost:8000/api/users/login/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+#### Submit Client Intake Form
+```bash
+curl -X POST http://localhost:8000/api/users/client-intake/ \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "John",
+    "last_name": "Doe",
+    "date_of_birth": "1990-05-15",
+    "phone_number": "+1-555-1234",
+    "email": "john@example.com",
+    "current_address": "123 Main St, New York, NY",
+    "mailing_address": "123 Main St, New York, NY",
+    "visa_status": "F1-OPT",
+    "first_entry_us": "2020-01-15",
+    "total_years_in_us": 4,
+    "skilled_in": "Python, Java, SQL",
+    "experienced_with": "AWS, Docker, Git"
+  }'
+```
+
+#### Check Form Completion Status
+```bash
+curl -X GET http://localhost:8000/api/users/forms-completion-status/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### API Endpoint Summary
    - Enter: `Bearer <your_access_token>`
    - Click **Authorize**
 
@@ -1050,6 +1171,337 @@ curl -X POST http://127.0.0.1:8000/api/recruiters/register/ \
 ```
 
 See `TESTING_FLOW.md` for detailed step-by-step testing guide.
+
+---
+
+## 📋 Client Forms APIs (Onboarding Forms)
+
+### Overview
+
+The Client Forms system provides two comprehensive forms for user onboarding:
+
+1. **Client Intake Sheet** - Collects personal, professional, and educational information
+2. **Credential Sheet** - Stores job platform credentials and job preferences
+
+Both forms are integrated into the `users` app and support:
+- ✅ Full CRUD operations (Create, Read, Update, Delete)
+- ✅ One form per user (OneToOne relationship with Profile)
+- ✅ Email notifications upon submission
+- ✅ Password masking for security
+- ✅ File uploads for documents and credentials
+- ✅ Form locking mechanism (edit control)
+- ✅ Completion status tracking
+
+### Why These APIs?
+
+These APIs enable:
+1. **Comprehensive Candidate Data Collection** - Beyond basic registration, collect detailed skills, experience, and preferences
+2. **Secure Credential Storage** - Safely store job platform credentials without exposing them
+3. **Compliance & Verification** - Collect necessary documents (passport, visa, work authorization, resume)
+4. **Job Matching** - Use stored preferences and skills for intelligent job matching
+5. **Audit Trail** - Track submission timestamps and edit history
+6. **Progress Tracking** - Know when candidates have completed all required onboarding
+
+### Client Intake Sheet API
+
+**Purpose**: Collect comprehensive candidate information including skills, experience, education, and documents.
+
+#### POST /api/users/client-intake/
+Create a new client intake sheet.
+
+**Authentication**: Required (JWT token)
+
+**Why**: Initial form submission to collect candidate details. Only one form per user. If user already has a form, returns 409 Conflict with URL to update existing form.
+
+**Request Body**:
+```json
+{
+  "first_name": "John",
+  "last_name": "Doe",
+  "date_of_birth": "1990-05-15",
+  "phone_number": "+1-555-1234",
+  "email": "john@example.com",
+  "current_address": "123 Main St, New York, NY",
+  "mailing_address": "123 Main St, New York, NY",
+  "visa_status": "F1-OPT",
+  "first_entry_us": "2020-01-15",
+  "total_years_in_us": 4,
+  "skilled_in": "Python, Java, SQL, React",
+  "experienced_with": "AWS, Docker, Git, CI/CD",
+  "desired_job_role": "Senior Software Engineer"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Client intake sheet submitted successfully",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "john@example.com",
+    "submission_timestamp": "2024-01-15T10:30:00Z",
+    "is_editable": true,
+    "form_submitted_date": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**Success Email**: Confirmation email sent to candidate with form summary.
+
+**Error Cases**:
+- `400 Bad Request`: Missing required fields or invalid data
+- `401 Unauthorized`: No authentication token provided
+- `409 Conflict`: Form already exists - use PATCH to update
+
+#### GET /api/users/client-intake/{id}/
+Retrieve existing client intake sheet.
+
+**Authentication**: Required (owner or admin)
+
+**Why**: View previously submitted form details. Used by candidates to review their submission or by admin to verify information.
+
+**Response** (200 OK): Complete form data with all submitted fields
+
+**Error Cases**:
+- `401 Unauthorized`: No authentication token
+- `403 Forbidden`: User doesn't own the form (and not admin)
+- `404 Not Found`: Form doesn't exist
+
+#### PATCH /api/users/client-intake/{id}/
+Update (partially) an existing client intake sheet.
+
+**Authentication**: Required (owner or admin)
+
+**Why**: Allow candidates to modify their information after submission. Useful for updating phone numbers, skills, or other details. Admin can bypass edit restrictions.
+
+**Request Body** (example - any fields can be updated):
+```json
+{
+  "phone_number": "+1-555-5678",
+  "visa_status": "H1B",
+  "skilled_in": "Python, Java, SQL, React, Go"
+}
+```
+
+**Response** (200 OK): Updated form data
+
+**Edit Restrictions**:
+- Candidates can only edit if `is_editable=true`
+- Admins can always edit regardless of `is_editable`
+- Can be locked after HR review
+
+#### PUT /api/users/client-intake/{id}/
+Full update of client intake sheet (replace all fields).
+
+**Authentication**: Required (owner or admin)
+
+**Why**: Less common than PATCH but used when replacing entire form (admin operations).
+
+---
+
+### Credential Sheet API
+
+**Purpose**: Store job platform login credentials and job search preferences securely.
+
+#### POST /api/users/credential-sheet/
+Create a new credential sheet with platform credentials.
+
+**Authentication**: Required (JWT token)
+
+**Why**: Second required form in onboarding flow. Stores credentials for 11+ job platforms. Passwords are masked in responses for security.
+
+**Request Body**:
+```json
+{
+  "full_name": "John Doe",
+  "personal_email": "john.personal@example.com",
+  "phone_number": "+1-555-1234",
+  "location": "New York, NY",
+  "bachelor_graduation_date": "2020-05-15",
+  "first_entry_us": "2020-01-15",
+  "preferred_job_roles": "Software Engineer, Senior Developer",
+  "preferred_locations": "New York, San Francisco, Remote",
+  "linkedin_username": "johndoe",
+  "linkedin_password": "my_secure_password",
+  "indeed_username": "johndoe@gmail.com",
+  "indeed_password": "another_password"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "success": true,
+  "message": "Credential sheet submitted successfully",
+  "data": {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "full_name": "John Doe",
+    "personal_email": "john.personal@example.com",
+    "linkedin_username": "johndoe",
+    "linkedin_password": "••••••",
+    "submission_timestamp": "2024-01-15T11:00:00Z",
+    "is_editable": true
+  }
+}
+```
+
+**Security**: Passwords masked as "••••••" in all API responses (stored securely in database)
+
+**Success Email**: Confirmation email sent with security notice (credentials NOT included in email)
+
+**Error Cases**:
+- `400 Bad Request`: Missing required fields
+- `401 Unauthorized`: No authentication token
+- `409 Conflict`: Credential sheet already exists
+
+#### GET /api/users/credential-sheet/{id}/
+Retrieve existing credential sheet.
+
+**Authentication**: Required (owner or admin)
+
+**Why**: View stored credentials for updating or verification.
+
+**Important**: All passwords returned as "••••••" for security
+
+**Response** (200 OK): Form data with masked passwords
+
+#### PATCH /api/users/credential-sheet/{id}/
+Update credential sheet (partially).
+
+**Authentication**: Required (owner or admin)
+
+**Why**: Update job preferences, locations, or platform credentials.
+
+**Request Body** (example):
+```json
+{
+  "preferred_job_roles": "Senior Engineer, Tech Lead",
+  "linkedin_password": "new_password"
+}
+```
+
+**Response** (200 OK): Updated data with masked passwords
+
+#### PUT /api/users/credential-sheet/{id}/
+Full update of credential sheet.
+
+**Authentication**: Required (owner or admin)
+
+---
+
+### Forms Completion Status API
+
+#### GET /api/users/forms-completion-status/
+Check if user has completed both required forms.
+
+**Authentication**: Required
+
+**Why**: Frontend can use this to:
+- Show progress to users (which forms are done)
+- Gate access to job matching features
+- Redirect incomplete users to form pages
+- Display completion percentage
+
+**Response** (200 OK):
+```json
+{
+  "client_intake_completed": true,
+  "credential_sheet_completed": true,
+  "all_forms_completed": true,
+  "profile_id": "550e8400-e29b-41d4-a716-446655440000",
+  "forms": {
+    "client_intake": {
+      "completed": true,
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "submitted_at": "2024-01-15T10:30:00Z",
+      "editable": true
+    },
+    "credential_sheet": {
+      "completed": true,
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "submitted_at": "2024-01-15T11:00:00Z",
+      "editable": true
+    }
+  }
+}
+```
+
+---
+
+### Field Validations & Choices
+
+For complete field validation rules, choices, and security considerations, see:
+- **`help_docs/CLIENT_FORMS_API_FIELD_VALIDATIONS.md`** - Detailed field documentation
+- **`help_docs/CLIENT_FORMS_API.md`** - Complete API reference with examples
+
+### Key Choices
+
+**Visa Status**: F1-OPT, H1B, H4 EAD, Green Card, US Citizen, Other
+
+**Job Type**: Full-time, Part-time, Internship
+
+**Degree**: Bachelor's, Master's, PhD, Diploma, Other
+
+**OPT Offer Letter Submitted**: Yes, No
+
+### Security Features
+
+- ✅ **Password Masking**: All passwords masked in API responses
+- ✅ **Authentication Required**: All endpoints require JWT token
+- ✅ **Authorization**: Users can only access their own forms (admins can access all)
+- ✅ **Edit Control**: Forms can be locked after HR review
+- ✅ **OneToOne Relationship**: Only one form per user
+- ✅ **Timestamps**: Submission and edit tracking for audit
+
+### Email Notifications
+
+**Client Intake Sheet Email**:
+- Subject: ✅ Client Intake Form - Submission Confirmed
+- Contains: Form summary, link to edit
+- Sent to: Candidate's email
+
+**Credential Sheet Email**:
+- Subject: ✅ Credential Sheet - Submission Confirmed
+- Contains: Form summary, security notice
+- **Does NOT include**: Passwords (for security)
+- Sent to: Candidate's email
+
+### Testing Client Forms APIs
+
+#### Using Swagger UI
+1. Go to http://127.0.0.1:8000/swagger/
+2. Login via `/api/users/login/` to get token
+3. Authorize with token
+4. Test each endpoint under "Client Forms" section
+
+#### Using curl
+```bash
+# Create intake sheet
+curl -X POST http://127.0.0.1:8000/api/users/client-intake/ \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "John",
+    "last_name": "Doe",
+    "date_of_birth": "1990-05-15",
+    "phone_number": "+1-555-1234",
+    "email": "john@example.com",
+    "current_address": "123 Main St",
+    "mailing_address": "123 Main St",
+    "visa_status": "F1-OPT",
+    "first_entry_us": "2020-01-15",
+    "total_years_in_us": 4,
+    "skilled_in": "Python",
+    "experienced_with": "AWS"
+  }'
+
+# Check completion status
+curl -X GET http://127.0.0.1:8000/api/users/forms-completion-status/ \
+  -H "Authorization: Bearer <token>"
+```
 
 ---
 

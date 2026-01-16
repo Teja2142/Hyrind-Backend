@@ -80,7 +80,7 @@ class AdminLoginView(TokenObtainPairView):
             request._full_data = data
         return super().post(request, *args, **kwargs)
 from django.contrib.auth.models import User
-from .models import Profile
+from .models import Profile, ClientIntakeSheet, CredentialSheet
 from .serializers import (
     UserSerializer,
     ProfileSerializer,
@@ -92,6 +92,8 @@ from .serializers import (
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     PasswordChangeSerializer,
+    ClientIntakeSheetSerializer,
+    CredentialSheetSerializer,
 )
 
 class UserList(generics.ListAPIView):
@@ -1963,4 +1965,633 @@ class PasswordChangeView(generics.GenericAPIView):
         return Response({
             'success': True,
             'message': 'Password changed successfully'
+        }, status=status.HTTP_200_OK)
+
+# ============================================================================
+# CLIENT INTAKE SHEET AND CREDENTIAL SHEET VIEWS
+# ============================================================================
+
+@swagger_auto_schema(
+    operation_description='Submit a new Client Intake Sheet form. This form collects comprehensive personal, professional, and educational information. Only one intake sheet per user is allowed. Returns 409 if form already exists.',
+    operation_summary='Create Client Intake Sheet',
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['first_name', 'last_name', 'date_of_birth', 'phone_number', 'email', 'current_address', 'mailing_address', 'visa_status', 'first_entry_us', 'total_years_in_us', 'skilled_in', 'experienced_with'],
+        properties={
+            'first_name': openapi.Schema(type=openapi.TYPE_STRING, example='John', description='Candidate first name'),
+            'last_name': openapi.Schema(type=openapi.TYPE_STRING, example='Doe', description='Candidate last name'),
+            'date_of_birth': openapi.Schema(type=openapi.TYPE_STRING, format='date', example='1990-05-15', description='Date of birth in YYYY-MM-DD format'),
+            'phone_number': openapi.Schema(type=openapi.TYPE_STRING, example='+1-555-1234', description='Phone number with country code'),
+            'email': openapi.Schema(type=openapi.TYPE_STRING, format='email', example='john@example.com', description='Primary email address'),
+            'alternate_email': openapi.Schema(type=openapi.TYPE_STRING, format='email', example='john.alt@example.com', description='Alternate email (optional)'),
+            'current_address': openapi.Schema(type=openapi.TYPE_STRING, example='123 Main St, New York, NY 10001', description='Current residential address'),
+            'mailing_address': openapi.Schema(type=openapi.TYPE_STRING, example='456 Oak Ave, Los Angeles, CA 90001', description='Mailing address'),
+            'visa_status': openapi.Schema(type=openapi.TYPE_STRING, enum=['F1-OPT', 'H1B', 'H4 EAD', 'Green Card', 'US Citizen', 'Other'], example='F1-OPT', description='Current visa/immigration status'),
+            'first_entry_us': openapi.Schema(type=openapi.TYPE_STRING, format='date', example='2020-01-15', description='First entry date to USA'),
+            'total_years_in_us': openapi.Schema(type=openapi.TYPE_INTEGER, example=4, description='Total years spent in USA'),
+            'skilled_in': openapi.Schema(type=openapi.TYPE_STRING, example='Python, Java, SQL, JavaScript', description='Technical skills'),
+            'experienced_with': openapi.Schema(type=openapi.TYPE_STRING, example='AWS, Docker, Git, Linux', description='Tools/platforms with experience'),
+            'desired_job_role': openapi.Schema(type=openapi.TYPE_STRING, example='Software Engineer, Senior Developer', description='Desired job position(s)'),
+            'resume_file': openapi.Schema(type=openapi.TYPE_STRING, format='binary', description='Resume file upload (PDF, DOC, DOCX)'),
+        }
+    ),
+    responses={
+        201: openapi.Response(
+            'Form submitted successfully',
+            openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                    'message': openapi.Schema(type=openapi.TYPE_STRING, example='Client intake sheet submitted successfully'),
+                    'data': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid', example='550e8400-e29b-41d4-a716-446655440000'),
+                            'first_name': openapi.Schema(type=openapi.TYPE_STRING),
+                            'submission_timestamp': openapi.Schema(type=openapi.TYPE_STRING, format='date-time', example='2024-01-15T10:30:00Z'),
+                            'is_editable': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        }
+                    )
+                }
+            )
+        ),
+        400: openapi.Response('Validation error or profile not found'),
+        401: openapi.Response('Authentication required'),
+        409: openapi.Response('Form already exists for this user. Use PATCH to update existing form.'),
+    },
+    tags=['Client Forms']
+)
+class ClientIntakeSheetCreateView(generics.CreateAPIView):
+    """
+    POST /api/users/client-intake/ - Create or get client intake sheet
+    
+    Create a new client intake sheet submission. Only authenticated users can submit.
+    If user already has a submitted form, they can update it via the detail endpoint.
+    
+    Permission: Authenticated users only
+    
+    Example Request:
+        POST /api/users/client-intake/
+        {
+            "first_name": "John",
+            "last_name": "Doe",
+            "date_of_birth": "1990-05-15",
+            "phone_number": "+1-555-1234",
+            "email": "john@example.com",
+            "alternate_email": "alternate@example.com",
+            "current_address": "123 Main St, New York, NY 10001",
+            "mailing_address": "456 Oak Ave, Los Angeles, CA 90001",
+            "visa_status": "F1-OPT",
+            "first_entry_us": "2020-01-15",
+            "total_years_in_us": 4,
+            ...
+        }
+    """
+    queryset = ClientIntakeSheet.objects.all()
+    serializer_class = ClientIntakeSheetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def create(self, request, *args, **kwargs):
+        """Create or update client intake sheet"""
+        try:
+            profile = Profile.objects.get(user=request.user)
+        except Profile.DoesNotExist:
+            return Response(
+                {'error': 'Profile not found. Please complete your registration first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user already has an intake sheet
+        try:
+            intake_sheet = ClientIntakeSheet.objects.get(profile=profile)
+            # If exists, use detail view update instead
+            return Response({
+                'message': 'Client intake sheet already exists. Use PATCH to update.',
+                'intake_sheet_id': str(intake_sheet.id),
+                'url': f'/api/users/client-intake/{intake_sheet.id}/'
+            }, status=status.HTTP_409_CONFLICT)
+        except ClientIntakeSheet.DoesNotExist:
+            pass
+        
+        # Create new intake sheet
+        request.data._mutable = True
+        request.data['profile'] = str(profile.id)
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # Send confirmation email
+        self._send_submission_email(serializer.instance, request.user)
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Client intake sheet submitted successfully',
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def _send_submission_email(self, intake_sheet, user):
+        """Send confirmation email to user after submission"""
+        try:
+            from utils.email_service import EmailService
+            
+            subject = '✅ Client Intake Form - Submission Confirmed'
+            text_content = f"""
+Dear {intake_sheet.profile.first_name},
+
+Thank you for submitting your client intake form!
+
+We have received your submission and will review your information shortly.
+You can view or edit your submission anytime by logging into your dashboard.
+
+Form Details:
+- First Name: {intake_sheet.first_name}
+- Last Name: {intake_sheet.last_name}
+- Visa Status: {intake_sheet.visa_status}
+- Submission Date: {intake_sheet.submission_timestamp.strftime('%Y-%m-%d %H:%M:%S') if intake_sheet.submission_timestamp else 'N/A'}
+- Form Status: {'Editable' if intake_sheet.is_editable else 'Locked'}
+
+If you need to make any changes, you can edit your form from your dashboard.
+
+Best regards,
+Hyrind Team
+            """
+            
+            html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
+        .content {{ background: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; }}
+        .footer {{ text-align: center; font-size: 12px; color: #6c757d; margin-top: 20px; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        td {{ padding: 8px; border: 1px solid #dee2e6; }}
+        td:first-child {{ font-weight: 600; background-color: #e9ecef; width: 40%; }}
+        .button {{ display: inline-block; background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-top: 15px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Intake Form Submitted</h1>
+            <p>Your information has been received</p>
+        </div>
+        <div class="content">
+            <p>Dear {intake_sheet.profile.first_name},</p>
+            <p>Thank you for submitting your client intake form!</p>
+            <p>We have received your submission and will review your information shortly.</p>
+            
+            <h3>Your Submission Summary:</h3>
+            <table>
+                <tr><td>First Name</td><td>{intake_sheet.first_name}</td></tr>
+                <tr><td>Last Name</td><td>{intake_sheet.last_name}</td></tr>
+                <tr><td>Visa Status</td><td>{intake_sheet.visa_status}</td></tr>
+                <tr><td>Submission Date</td><td>{intake_sheet.submission_timestamp.strftime('%B %d, %Y') if intake_sheet.submission_timestamp else 'N/A'}</td></tr>
+                <tr><td>Editable</td><td>{'Yes' if intake_sheet.is_editable else 'No'}</td></tr>
+            </table>
+            
+            <p>You can view or edit your submission anytime by logging into your dashboard.</p>
+            <a href="https://hyrind.com/dashboard" class="button">View Your Dashboard</a>
+        </div>
+        <div class="footer">
+            <p>© 2024 Hyrind. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """
+            
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[user.email]
+            )
+        except Exception as e:
+            print(f"Failed to send intake form confirmation email: {str(e)}")
+
+
+@swagger_auto_schema(
+    operation_summary="Retrieve or update client intake sheet",
+    operation_description="Retrieve, update, or partially update a client intake sheet. Only the owner or admin can access/modify.",
+    responses={
+        200: openapi.Response('Success', ClientIntakeSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required',
+        403: 'Forbidden',
+        404: 'Not found'
+    },
+    tags=["Client Forms"]
+)
+class ClientIntakeSheetRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    """
+    GET /api/users/client-intake/{id}/ - Get client intake sheet
+    PUT /api/users/client-intake/{id}/ - Full update client intake sheet
+    PATCH /api/users/client-intake/{id}/ - Partial update client intake sheet
+    
+    Retrieve, update, or partially update a client intake sheet.
+    Only the user who created the form or admin can access/modify it.
+    
+    Permission: Authenticated users only (owner or admin)
+    """
+    queryset = ClientIntakeSheet.objects.all()
+    serializer_class = ClientIntakeSheetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    lookup_field = 'id'
+    
+    def get_object(self):
+        """Get the client intake sheet, ensuring user permission"""
+        obj = super().get_object()
+        
+        # Check if user is the owner or admin
+        if obj.profile.user != self.request.user and not self.request.user.is_staff:
+            self.permission_denied(
+                self.request,
+                message='You do not have permission to access this form.'
+            )
+        
+        return obj
+    
+    def update(self, request, *args, **kwargs):
+        """Update intake sheet and send notification"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        # Check if form is editable
+        if not instance.is_editable and not request.user.is_staff:
+            return Response(
+                {'error': 'This form is locked and cannot be edited.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'success': True,
+            'message': 'Client intake form updated successfully',
+            'data': serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+@swagger_auto_schema(
+    operation_summary="Create credential sheet",
+    operation_description="Create a new credential sheet for the authenticated user. If a form already exists, returns a 409 with the form URL.",
+    request_body=CredentialSheetSerializer,
+    responses={
+        201: openapi.Response('Created', CredentialSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required',
+        409: 'Form already exists for this user.'
+    },
+    tags=["Client Forms"]
+)
+class CredentialSheetCreateView(generics.CreateAPIView):
+    """
+    POST /api/users/credential-sheet/ - Create credential sheet
+    
+    Create a new credential sheet with job platform login information.
+    Only authenticated users can submit.
+    
+    Permission: Authenticated users only
+    
+    Example Request:
+        POST /api/users/credential-sheet/
+        {
+            "full_name": "John Doe",
+            "personal_email": "john.personal@example.com",
+            "phone_number": "+1-555-1234",
+            "location": "New York, NY",
+            "bachelor_graduation_date": "2020-05-15",
+            "masters_graduation_date": "2022-05-15",
+            "opt_start_date": "2022-06-01",
+            "opt_offer_letter_submitted": "Yes",
+            "opt_offer_letter_file": <file>,
+            "preferred_job_roles": "Software Engineer, Data Scientist",
+            "preferred_locations": "New York, San Francisco, Remote",
+            "linkedin_username": "johndoe",
+            "linkedin_password": "encrypted_password",
+            ...
+        }
+    """
+    queryset = CredentialSheet.objects.all()
+    serializer_class = CredentialSheetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def create(self, request, *args, **kwargs):
+        """Create credential sheet"""
+        try:
+            profile = Profile.objects.get(user=request.user)
+        except Profile.DoesNotExist:
+            return Response(
+                {'error': 'Profile not found. Please complete your registration first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user already has a credential sheet
+        try:
+            credential_sheet = CredentialSheet.objects.get(profile=profile)
+            # If exists, use detail view update instead
+            return Response({
+                'message': 'Credential sheet already exists. Use PATCH to update.',
+                'credential_sheet_id': str(credential_sheet.id),
+                'url': f'/api/users/credential-sheet/{credential_sheet.id}/'
+            }, status=status.HTTP_409_CONFLICT)
+        except CredentialSheet.DoesNotExist:
+            pass
+        
+        # Create new credential sheet
+        request.data._mutable = True
+        request.data['profile'] = str(profile.id)
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # Send confirmation email (without passwords)
+        self._send_submission_email(serializer.instance, request.user)
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response({
+            'success': True,
+            'message': 'Credential sheet submitted successfully',
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def _send_submission_email(self, credential_sheet, user):
+        """Send confirmation email to user after credential submission"""
+        try:
+            from utils.email_service import EmailService
+            
+            subject = '✅ Credential Sheet - Submission Confirmed'
+            text_content = f"""
+Dear {credential_sheet.profile.first_name},
+
+Thank you for submitting your credential sheet!
+
+We have securely received your platform credentials and job preferences.
+Your login information is encrypted and will only be used to assist with your job search.
+
+Submission Details:
+- Full Name: {credential_sheet.full_name}
+- Email: {credential_sheet.personal_email}
+- Location: {credential_sheet.location}
+- Preferred Roles: {credential_sheet.preferred_job_roles}
+- Submission Date: {credential_sheet.submission_timestamp.strftime('%Y-%m-%d %H:%M:%S') if credential_sheet.submission_timestamp else 'N/A'}
+
+Your credentials are encrypted and secure. You can update them anytime from your dashboard.
+
+Best regards,
+Hyrind Team
+            """
+            
+            html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }}
+        .content {{ background: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; }}
+        .footer {{ text-align: center; font-size: 12px; color: #6c757d; margin-top: 20px; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
+        td {{ padding: 8px; border: 1px solid #dee2e6; }}
+        td:first-child {{ font-weight: 600; background-color: #e9ecef; width: 40%; }}
+        .button {{ display: inline-block; background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-top: 15px; }}
+        .security-notice {{ background: #e7f5ff; border: 1px solid #a5d8ff; padding: 12px; border-radius: 4px; margin: 15px 0; font-size: 14px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Credential Sheet Submitted</h1>
+            <p>Your credentials have been securely received</p>
+        </div>
+        <div class="content">
+            <p>Dear {credential_sheet.profile.first_name},</p>
+            <p>Thank you for submitting your credential sheet!</p>
+            
+            <div class="security-notice">
+                🔒 <strong>Security Notice:</strong> Your login credentials are encrypted with industry-standard security protocols and will only be used to assist with your job search.
+            </div>
+            
+            <h3>Your Submission Summary:</h3>
+            <table>
+                <tr><td>Full Name</td><td>{credential_sheet.full_name}</td></tr>
+                <tr><td>Email</td><td>{credential_sheet.personal_email}</td></tr>
+                <tr><td>Location</td><td>{credential_sheet.location}</td></tr>
+                <tr><td>Preferred Roles</td><td>{credential_sheet.preferred_job_roles}</td></tr>
+                <tr><td>Submission Date</td><td>{credential_sheet.submission_timestamp.strftime('%B %d, %Y') if credential_sheet.submission_timestamp else 'N/A'}</td></tr>
+            </table>
+            
+            <p>You can update your credentials anytime from your dashboard.</p>
+            <a href="https://hyrind.com/dashboard" class="button">View Your Dashboard</a>
+        </div>
+        <div class="footer">
+            <p>© 2024 Hyrind. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+            """
+            
+            EmailService.send_email(
+                subject=subject,
+                text_content=text_content,
+                html_content=html_content,
+                to_emails=[user.email]
+            )
+        except Exception as e:
+            print(f"Failed to send credential sheet confirmation email: {str(e)}")
+
+
+@swagger_auto_schema(
+    operation_summary="Retrieve or update credential sheet",
+    operation_description="Retrieve, update, or partially update a credential sheet. Only the owner or admin can access/modify.",
+    responses={
+        200: openapi.Response('Success', CredentialSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required',
+        403: 'Forbidden',
+        404: 'Not found'
+    },
+    tags=["Client Forms"]
+)
+class CredentialSheetRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    """
+    GET /api/users/credential-sheet/{id}/ - Get credential sheet
+    PUT /api/users/credential-sheet/{id}/ - Full update credential sheet
+    PATCH /api/users/credential-sheet/{id}/ - Partial update credential sheet
+    
+    Retrieve, update, or partially update a credential sheet.
+    Only the user who created the form or admin can access/modify it.
+    
+    Permission: Authenticated users only (owner or admin)
+    """
+    queryset = CredentialSheet.objects.all()
+    serializer_class = CredentialSheetSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    lookup_field = 'id'
+    
+    def get_object(self):
+        """Get the credential sheet, ensuring user permission"""
+        obj = super().get_object()
+        
+        # Check if user is the owner or admin
+        if obj.profile.user != self.request.user and not self.request.user.is_staff:
+            self.permission_denied(
+                self.request,
+                message='You do not have permission to access this form.'
+            )
+        
+        return obj
+    
+    def update(self, request, *args, **kwargs):
+        """Update credential sheet"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        # Check if form is editable
+        if not instance.is_editable and not request.user.is_staff:
+            return Response(
+                {'error': 'This form is locked and cannot be edited.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'success': True,
+            'message': 'Credential sheet updated successfully',
+            'data': serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+@swagger_auto_schema(
+    operation_summary="Get forms completion status",
+    operation_description="Check if the authenticated user has completed both required forms (Client Intake Sheet and Credential Sheet). Returns completion status and form details.",
+    responses={
+        200: openapi.Response('Success', openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'client_intake_completed': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'credential_sheet_completed': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'all_forms_completed': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'profile_id': openapi.Schema(type=openapi.TYPE_STRING),
+                'forms': openapi.Schema(type=openapi.TYPE_OBJECT)
+            }
+        )),
+        401: 'Authentication required',
+        404: 'Profile not found'
+    },
+    tags=["Client Forms"]
+)
+class FormsCompletionStatusView(generics.GenericAPIView):
+    """
+    GET /api/users/forms-completion-status/ - Get form completion status
+    
+    Check if authenticated user has completed both required forms:
+    - Client Intake Sheet
+    - Credential Sheet
+    
+    Returns completion status and links to forms.
+    
+    Permission: Authenticated users only
+    
+    Response:
+        {
+            "client_intake_completed": true/false,
+            "credential_sheet_completed": true/false,
+            "all_forms_completed": true/false,
+            "profile_id": "uuid",
+            "forms": {
+                "client_intake": {
+                    "completed": true/false,
+                    "id": "uuid (if exists)",
+                    "submitted_at": "2024-01-15T10:30:00Z (if exists)",
+                    "editable": true/false (if exists)
+                },
+                "credential_sheet": {
+                    "completed": true/false,
+                    "id": "uuid (if exists)",
+                    "submitted_at": "2024-01-15T10:30:00Z (if exists)",
+                    "editable": true/false (if exists)
+                }
+            }
+        }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """Return a dummy serializer for Swagger schema generation"""
+        # This view doesn't actually use a serializer, but we need to provide one for schema generation
+        from rest_framework import serializers
+        
+        class FormsStatusSerializer(serializers.Serializer):
+            client_intake_completed = serializers.BooleanField()
+            credential_sheet_completed = serializers.BooleanField()
+            all_forms_completed = serializers.BooleanField()
+            profile_id = serializers.CharField()
+            
+        return FormsStatusSerializer
+    
+    def get(self, request):
+        """Get form completion status"""
+        try:
+            profile = Profile.objects.get(user=request.user)
+        except Profile.DoesNotExist:
+            return Response(
+                {'error': 'Profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check intake sheet
+        intake_exists = ClientIntakeSheet.objects.filter(profile=profile).exists()
+        intake_data = None
+        if intake_exists:
+            intake = ClientIntakeSheet.objects.get(profile=profile)
+            intake_data = {
+                'id': str(intake.id),
+                'submitted_at': intake.submission_timestamp.isoformat() if intake.submission_timestamp else None,
+                'editable': intake.is_editable
+            }
+        
+        # Check credential sheet
+        credential_exists = CredentialSheet.objects.filter(profile=profile).exists()
+        credential_data = None
+        if credential_exists:
+            credential = CredentialSheet.objects.get(profile=profile)
+            credential_data = {
+                'id': str(credential.id),
+                'submitted_at': credential.submission_timestamp.isoformat() if credential.submission_timestamp else None,
+                'editable': credential.is_editable
+            }
+        
+        return Response({
+            'client_intake_completed': intake_exists,
+            'credential_sheet_completed': credential_exists,
+            'all_forms_completed': intake_exists and credential_exists,
+            'profile_id': str(profile.id),
+            'forms': {
+                'client_intake': {
+                    'completed': intake_exists,
+                    **(intake_data or {})
+                },
+                'credential_sheet': {
+                    'completed': credential_exists,
+                    **(credential_data or {})
+                }
+            }
         }, status=status.HTTP_200_OK)

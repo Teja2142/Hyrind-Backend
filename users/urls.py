@@ -70,4 +70,18 @@ urlpatterns = [
     path('admin/candidates/<uuid:id>/deactivate/', views.CandidateDeactivateView.as_view(), name='candidate-deactivate'),
     # Mark candidate as placed (assigned → closed) - indicates successful placement
     path('admin/candidates/<uuid:id>/placed/', views.CandidateMarkPlacedView.as_view(), name='candidate-placed'),
+    
+    # ============================================================================
+    # CLIENT INTAKE AND CREDENTIAL FORMS
+    # ============================================================================
+    # Client intake sheet - Create new or get existing
+    path('client-intake/', views.ClientIntakeSheetCreateView.as_view(), name='client-intake-create'),
+    # Client intake sheet - Retrieve, update, or delete specific form
+    path('client-intake/<uuid:id>/', views.ClientIntakeSheetRetrieveUpdateView.as_view(), name='client-intake-detail'),
+    # Credential sheet - Create new or get existing
+    path('credential-sheet/', views.CredentialSheetCreateView.as_view(), name='credential-sheet-create'),
+    # Credential sheet - Retrieve, update, or delete specific form
+    path('credential-sheet/<uuid:id>/', views.CredentialSheetRetrieveUpdateView.as_view(), name='credential-sheet-detail'),
+    # Check form completion status
+    path('forms-completion-status/', views.FormsCompletionStatusView.as_view(), name='forms-completion-status'),
 ]
