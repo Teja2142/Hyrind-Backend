@@ -2308,16 +2308,15 @@ class CredentialSheetCreateView(generics.CreateAPIView):
         except CredentialSheet.DoesNotExist:
             pass
         
-        # Create new credential sheet
-        request.data._mutable = True
-        request.data['profile'] = str(profile.id)
-        
+        # Validate and create credential sheet
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        
+        # Save with profile relationship
+        credential_sheet = serializer.save(profile=profile)
         
         # Send confirmation email (without passwords)
-        self._send_submission_email(serializer.instance, request.user)
+        self._send_submission_email(credential_sheet, request.user)
         
         headers = self.get_success_headers(serializer.data)
         return Response({
