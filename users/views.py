@@ -2431,12 +2431,9 @@ class ClientIntakeSheetCreateView(generics.CreateAPIView):
             pass
         
         # Create new intake sheet
-        request.data._mutable = True
-        request.data['profile'] = str(profile.id)
-        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        serializer.save(profile=profile)
         
         # Send confirmation email
         self._send_submission_email(serializer.instance, request.user)
