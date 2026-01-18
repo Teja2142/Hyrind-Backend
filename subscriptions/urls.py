@@ -11,13 +11,9 @@ router.register(r'admin/subscriptions', views.AdminUserSubscriptionViewSet, base
 router.register(r'admin/billing-history', views.AdminBillingHistoryViewSet, basename='admin-billing-history')
 
 urlpatterns = [
-    # New subscription system (recommended)
+    # Subscription management
     path('', include(router.urls)),
     
     # Payment webhook
     path('webhook/payment/', views.SubscriptionPaymentWebhookView.as_view(), name='subscription-payment-webhook'),
-    
-    # Legacy endpoints (deprecated - kept for backward compatibility)
-    path('legacy/', views.SubscriptionListCreateView.as_view(), name='subscription-list-create-legacy'),
-    path('legacy/<uuid:pk>/', views.SubscriptionRetrieveUpdateView.as_view(), name='subscription-detail-legacy'),
 ]

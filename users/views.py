@@ -15,6 +15,34 @@ DEFAULT_OPERATIONS_EMAIL = 'hyrind.operations@gmail.com'
 
 
 class LoginView(TokenObtainPairView):
+    """
+    Client/Candidate login endpoint (Public access)
+    POST /api/users/login/
+    
+    Authenticates users (clients/candidates) and returns JWT tokens for accessing protected endpoints.
+    Uses email as the login identifier.
+    
+    Request Body:
+        {
+            "email": "user@example.com",
+            "password": "securePassword123"
+        }
+    
+    Response (200 OK):
+        {
+            "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",  # JWT access token (short-lived)
+            "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."  # JWT refresh token (long-lived)
+        }
+    
+    Error Responses:
+        401 Unauthorized: Invalid credentials
+        400 Bad Request: Missing email or password
+    
+    Usage:
+        - Use the access token in Authorization header: "Bearer <access_token>"
+        - Access tokens expire in 60 minutes (default)
+        - Use refresh token to get new access token via /api/token/refresh/
+    """
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
@@ -54,7 +82,36 @@ class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class AdminLoginView(TokenObtainPairView):
-    """API endpoint to obtain JWT for admin users only."""
+    """
+    Admin login endpoint (Admin only)
+    POST /api/users/admin/login/
+    
+    Authenticates admin users (staff/superuser) and returns JWT tokens. Regular users cannot login through this endpoint.
+    Uses username or email as the login identifier.
+    
+    Permission: Public (AllowAny) but validates admin credentials in serializer
+    
+    Request Body:
+        {
+            "username": "admin@example.com",  # Can be username or email
+            "password": "adminPassword123"
+        }
+    
+    Response (200 OK):
+        {
+            "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",  # JWT access token
+            "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."  # JWT refresh token
+        }
+    
+    Error Responses:
+        401 Unauthorized: Invalid credentials or non-admin user
+        400 Bad Request: Missing username or password
+    
+    Usage:
+        - Only staff or superuser accounts can login
+        - Access admin endpoints with Authorization header: "Bearer <access_token>"
+        - Token format and expiry same as regular login
+    """
     permission_classes = [AllowAny]
     serializer_class = AdminTokenObtainPairSerializer
 
@@ -119,6 +176,46 @@ class UserList(generics.ListAPIView):
     serializer_class = UserPublicSerializer
     permission_classes = [IsAdminUser]
     
+    @swagger_auto_schema(
+        operation_summary='List all users in system',
+        operation_description="""Retrieve all users including clients, recruiters, and admins.
+
+Query Parameters:
+- active: Filter by active status (true/false)
+- status: Filter by registration status
+- search: Search by email
+
+Permission: Admin only
+
+Example Response:
+[
+  {
+    "id": "user-uuid",
+    "email": "user@example.com",
+    "profile": {
+      "id": "profile-uuid",
+      "first_name": "John",
+      "last_name": "Doe",
+      "active": true,
+      "registration_status": "approved"
+    }
+  }
+]""",
+        manual_parameters=[
+            openapi.Parameter('active', openapi.IN_QUERY, description="Filter by active status", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter('status', openapi.IN_QUERY, description="Filter by registration status", type=openapi.TYPE_STRING),
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search by email", type=openapi.TYPE_STRING)
+        ],
+        responses={
+            200: openapi.Response('List of users', UserPublicSerializer(many=True)),
+            401: 'Authentication required',
+            403: 'Admin access required'
+        },
+        tags=['Users - Management']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
     def get_queryset(self):
         """Get all users in the system without filtering"""
         queryset = User.objects.select_related('profile').order_by('-id')
@@ -168,6 +265,52 @@ class ClientListView(generics.ListAPIView):
     """
     serializer_class = UserPublicSerializer
     permission_classes = [IsAdminUser]
+    
+    @swagger_auto_schema(
+        operation_summary='List client users only',
+        operation_description="""Retrieve only client users (job seekers), excluding recruiters and admins.
+
+Query Parameters:
+- active: Filter by active status (true/false)
+- status: Filter by registration status
+- has_recruiter: Filter by recruiter assignment (true/false)
+- search: Search by name or email
+
+Permission: Admin only
+
+Example Response:
+[
+  {
+    "id": "user-uuid",
+    "email": "client@example.com",
+    "profile": {
+      "id": "profile-uuid",
+      "first_name": "Jane",
+      "last_name": "Smith",
+      "university": "MIT",
+      "major": "Computer Science",
+      "visa_status": "F1-OPT",
+      "assigned_recruiter": "Recruiter Name",
+      "registration_status": "assigned",
+      "active": true
+    }
+  }
+]""",
+        manual_parameters=[
+            openapi.Parameter('active', openapi.IN_QUERY, description="Filter by active status", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter('status', openapi.IN_QUERY, description="Filter by registration status", type=openapi.TYPE_STRING),
+            openapi.Parameter('has_recruiter', openapi.IN_QUERY, description="Filter by recruiter assignment", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search by name or email", type=openapi.TYPE_STRING)
+        ],
+        responses={
+            200: openapi.Response('List of client users', UserPublicSerializer(many=True)),
+            401: 'Authentication required',
+            403: 'Admin access required'
+        },
+        tags=['Users - Management']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
     
     def get_queryset(self):
         """Filter to show only clients (users without recruiter_profile)"""
@@ -229,6 +372,52 @@ class ProfileList(generics.ListCreateAPIView):
     """
     serializer_class = ProfileSerializer
     permission_classes = [IsAdminUser]
+    
+    @swagger_auto_schema(
+        operation_summary='List all user profiles',
+        operation_description="""Retrieve all user profiles in the system.
+
+Query Parameters:
+- active: Filter by active status
+- visa_status: Filter by visa status (F1-OPT, H1B, GC, USC)
+- university: Search university name
+- major: Search major
+- search: Search by name or email
+
+Permission: Admin only""",
+        manual_parameters=[
+            openapi.Parameter('active', openapi.IN_QUERY, description="Filter by active status", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter('visa_status', openapi.IN_QUERY, description="Filter by visa status", type=openapi.TYPE_STRING),
+            openapi.Parameter('university', openapi.IN_QUERY, description="Search university", type=openapi.TYPE_STRING),
+            openapi.Parameter('major', openapi.IN_QUERY, description="Search major", type=openapi.TYPE_STRING),
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search name/email", type=openapi.TYPE_STRING)
+        ],
+        responses={
+            200: openapi.Response('List of profiles', ProfileSerializer(many=True)),
+            401: 'Authentication required',
+            403: 'Admin access required'
+        },
+        tags=['Users - Profiles']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary='Create new user profile',
+        operation_description="""Create a new user profile in the system.
+
+Permission: Admin only""",
+        request_body=ProfileSerializer,
+        responses={
+            201: openapi.Response('Profile created', ProfileSerializer),
+            400: 'Invalid data',
+            401: 'Authentication required',
+            403: 'Admin access required'
+        },
+        tags=['Users - Profiles']
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
     
     def get_queryset(self):
         """Get all profiles in the system without filtering by user type"""
@@ -346,12 +535,179 @@ class ClientProfileList(generics.ListCreateAPIView):
         return ProfileSerializer
 
 class ProfileRetrieveUpdateDestroy(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Profile Detail API
+    GET /api/users/profiles/{id}/ - Get profile details
+    PUT /api/users/profiles/{id}/ - Update profile (full)
+    PATCH /api/users/profiles/{id}/ - Update profile (partial)
+    DELETE /api/users/profiles/{id}/ - Delete profile
+    """
     queryset = Profile.objects.select_related('user').all()
     serializer_class = ProfileSerializer
     lookup_field = 'id'  # Profile.id is the UUID primary key
     parser_classes = [MultiPartParser, FormParser]
+    
+    @swagger_auto_schema(
+        operation_summary='Get profile by ID',
+        operation_description="""Retrieve detailed profile information by profile ID.
+
+Shows complete profile including:
+- Personal information (name, email, phone)
+- University and education details
+- Visa status and work authorization
+- Resume and document uploads
+- Assignment and recruiter information
+- Registration status
+
+Permission: Admin only
+
+Example Response:
+{
+  "id": "profile-uuid",
+  "user": {"id": "user-uuid", "email": "user@example.com"},
+  "first_name": "John",
+  "last_name": "Doe",
+  "email": "john.doe@example.com",
+  "phone_number": "+1234567890",
+  "university": "Stanford University",
+  "major": "Computer Science",
+  "visa_status": "F1-OPT",
+  "resume": "https://storage.../resume.pdf",
+  "registration_status": "approved",
+  "active": true
+}""",
+        responses={
+            200: openapi.Response('Profile details', ProfileSerializer),
+            401: 'Authentication required',
+            403: 'Admin access required',
+            404: 'Profile not found'
+        },
+        tags=['Users - Profiles']
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary='Update profile (full)',
+        operation_description="""Complete profile update - requires all fields.
+
+Use to update all profile information including personal details, education, visa status, etc.
+
+Permission: Admin only
+
+PUT requires all fields, use PATCH for partial updates.""",
+        request_body=ProfileSerializer,
+        responses={
+            200: openapi.Response('Profile updated', ProfileSerializer),
+            400: 'Invalid data - validation errors',
+            401: 'Authentication required',
+            403: 'Admin access required',
+            404: 'Profile not found'
+        },
+        tags=['Users - Profiles']
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary='Update profile (partial)',
+        operation_description="""Partial profile update - only provided fields updated.
+
+Use to update specific profile fields without sending all data.
+
+Supports multipart/form-data for file uploads (resume, documents).
+
+Permission: Admin only
+
+Example Request (update status):
+{
+  "registration_status": "approved",
+  "active": true
+}""",
+        request_body=ProfileSerializer,
+        responses={
+            200: openapi.Response('Profile updated', ProfileSerializer),
+            400: 'Invalid data - validation errors',
+            401: 'Authentication required',
+            403: 'Admin access required',
+            404: 'Profile not found'
+        },
+        tags=['Users - Profiles']
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary='Delete profile',
+        operation_description="""Delete a user profile permanently.
+
+This also deletes the associated User account.
+
+Permission: Admin only
+
+Warning: This action cannot be undone.""",
+        responses={
+            204: 'Profile deleted successfully',
+            401: 'Authentication required',
+            403: 'Admin access required',
+            404: 'Profile not found'
+        },
+        tags=['Users - Profiles']
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
 
 class RegistrationView(generics.GenericAPIView):
+    """
+    Client/Candidate registration endpoint (Public access)
+    POST /api/users/register/
+    
+    Registers a new client (job seeker) in the system. Creates User account and Profile.
+    Sends welcome email to user and notification to admin.
+    
+    Permission: Public (AllowAny)
+    
+    Request Body (multipart/form-data):
+        {
+            "first_name": "John",
+            "last_name": "Doe",
+            "email": "john.doe@example.com",
+            "phone": "+1-234-567-8900",
+            "password": "securePassword123",
+            "password2": "securePassword123",  # Must match password
+            "university": "Stanford University",
+            "degree": "Master of Science",
+            "major": "Computer Science",
+            "graduation_date": "2024-05-15",  # YYYY-MM-DD
+            "visa_status": "F1-OPT",
+            "years_of_experience": 2,
+            "linkedin_profile": "https://linkedin.com/in/johndoe",
+            "resume": <file>,  # PDF/DOC/DOCX file upload
+            "profile_picture": <file>  # JPG/PNG image upload
+        }
+    
+    Response (201 Created):
+        {
+            "message": "User registered successfully. Please check your email for further instructions.",
+            "profile_id": "550e8400-e29b-41d4-a716-446655440000"
+        }
+    
+    Error Responses:
+        400 Bad Request: Validation errors (email exists, passwords don't match, missing fields)
+    
+    Workflow:
+        1. Validate all required fields
+        2. Create User account with email as username
+        3. Create Profile with all additional information
+        4. Set registration_status to 'open' (waiting for admin approval)
+        5. Send welcome email to user
+        6. Send notification email to admin for review
+    
+    Next Steps After Registration:
+        - Admin reviews application via /api/admin/users/candidates/{id}/approve/
+        - User waits for approval email
+        - Once approved, user can complete payment via subscription endpoints
+    """
     serializer_class = RegistrationSerializer
     parser_classes = [MultiPartParser, FormParser]
     permission_classes = [permissions.AllowAny]

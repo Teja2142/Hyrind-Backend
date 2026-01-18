@@ -26,22 +26,73 @@ def get_razorpay_client():
 
 
 class PaymentListCreate(generics.ListCreateAPIView):
+    """
+    Payment Records API
+    GET /api/payments/ - List all payment records
+    POST /api/payments/ - Create payment record (internal use)
+    """
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description='List payments (admin/authorized users)',
-        responses={200: PaymentSerializer(many=True)},
+        operation_summary='List all payments',
+        operation_description="""Retrieve all payment records for the authenticated user.
+
+Shows payment history including:
+- Razorpay orders and payments
+- Payment status (created, pending, captured, failed, refunded)
+- Amount and currency
+- Transaction timestamps
+
+Permission: Authenticated users (see own payments), Admin (see all)
+
+Example Response:
+[
+  {
+    "id": "uuid",
+    "user": {"id": "uuid", "email": "user@example.com"},
+    "amount": "299.00",
+    "currency": "USD",
+    "provider": "razorpay",
+    "status": "captured",
+    "provider_order_id": "order_xyz123",
+    "provider_payment_id": "pay_abc456",
+    "created_at": "2024-01-18T10:00:00Z",
+    "processed_at": "2024-01-18T10:05:00Z"
+  }
+]""",
+        responses={
+            200: openapi.Response('List of payments', PaymentSerializer(many=True)),
+            401: 'Authentication required'
+        },
         tags=['Payments']
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
     @swagger_auto_schema(
-        operation_description='Create a local Payment record (primarily used internally)',
+        operation_summary='Create payment record',
+        operation_description="""Create a local payment record (internal use).
+
+Note: This endpoint is primarily used internally. 
+For creating actual Razorpay orders, use POST /api/payments/create-razorpay-order/
+
+Permission: Authenticated users
+
+Example Request:
+{
+  "amount": "299.00",
+  "currency": "USD",
+  "provider": "razorpay",
+  "status": "created"
+}""",
         request_body=PaymentSerializer,
-        responses={201: PaymentSerializer},
+        responses={
+            201: openapi.Response('Payment record created', PaymentSerializer),
+            400: 'Invalid data - validation errors',
+            401: 'Authentication required'
+        },
         tags=['Payments']
     )
     def post(self, request, *args, **kwargs):
@@ -49,11 +100,65 @@ class PaymentListCreate(generics.ListCreateAPIView):
 
 
 class CreateRazorpayOrderView(APIView):
+    """
+    Razorpay Order Creation API
+    POST /api/payments/create-razorpay-order/ - Create Razorpay payment order
+    """
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
-        operation_description="Create a Razorpay order and a local Payment record",
+        operation_summary="Create Razorpay payment order",
+        operation_description="""Create a new Razorpay order for payment processing.
+
+This is the PRIMARY endpoint for initiating payments:
+1. Creates local payment record in database
+2. Creates Razorpay order via Razorpay API
+3. Returns order details and Razorpay key for frontend integration
+
+Use the returned order_id and key_id in Razorpay checkout on frontend.
+
+Permission: Authenticated users
+
+Example Request:
+{
+  "amount": 299.00,
+  "currency": "USD",
+  "notes": {
+    "subscription_plan": "premium",
+    "user_email": "user@example.com"
+  },
+  "idempotency_key": "unique_key_123"
+}
+
+Example Response:
+{
+  "order": {
+    "id": "order_xyz123",
+    "amount": 29900,
+    "currency": "USD",
+    "status": "created"
+  },
+  "key_id": "rzp_test_...",
+  "payment_uuid": "local-payment-uuid"
+}
+
+Frontend Integration:
+- Use order.id as order_id in Razorpay checkout
+- Use key_id as key in Razorpay options
+- Store payment_uuid for verification step""",
         request_body=CreateRazorpayOrderSerializer,
-        responses={201: openapi.Response('Created', PaymentSerializer)} ,
+        responses={
+            201: openapi.Response('Razorpay order created', openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'order': openapi.Schema(type=openapi.TYPE_OBJECT, description='Razorpay order object'),
+                    'key_id': openapi.Schema(type=openapi.TYPE_STRING, description='Razorpay key ID for frontend'),
+                    'payment_uuid': openapi.Schema(type=openapi.TYPE_STRING, description='Local payment UUID')
+                }
+            )),
+            400: 'Invalid request data',
+            401: 'Authentication required',
+            502: 'Failed to create order with Razorpay'
+        },
         tags=['Payments']
     )
     def post(self, request, *args, **kwargs):
@@ -109,11 +214,59 @@ class CreateRazorpayOrderView(APIView):
 
 
 class VerifyRazorpayPaymentView(APIView):
+    """
+    Razorpay Payment Verification API
+    POST /api/payments/verify-razorpay-payment/ - Verify payment signature
+    """
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
-        operation_description="Verify Razorpay payment signature and mark local payment as captured",
+        operation_summary="Verify Razorpay payment",
+        operation_description="""Verify Razorpay payment signature and update payment status.
+
+Call this AFTER successful payment on frontend:
+1. Validates Razorpay signature (security check)
+2. Updates local payment record to 'captured' status
+3. Marks payment as processed with timestamp
+
+Permission: Authenticated users
+
+Example Request:
+{
+  "payment_uuid": "local-payment-uuid",
+  "payment_id": "pay_abc456",
+  "order_id": "order_xyz123",
+  "signature": "razorpay_signature_hash"
+}
+
+Example Response (Success):
+{
+  "success": true,
+  "payment_id": "local-payment-uuid",
+  "status": "captured"
+}
+
+Security:
+- Signature verification ensures payment authenticity
+- Prevents fraudulent payment confirmations
+- Server-side validation of Razorpay webhook data
+
+Error Responses:
+- 400: Signature verification failed (fraudulent request)
+- 404: Payment record not found""",
         request_body=VerifyRazorpayPaymentSerializer,
-        responses={200: openapi.Response('OK', openapi.Schema(type=openapi.TYPE_OBJECT))},
+        responses={
+            200: openapi.Response('Payment verified', openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                    'payment_id': openapi.Schema(type=openapi.TYPE_STRING),
+                    'status': openapi.Schema(type=openapi.TYPE_STRING)
+                }
+            )),
+            400: 'Signature verification failed',
+            401: 'Authentication required',
+            404: 'Payment record not found'
+        },
         tags=['Payments']
     )
     def post(self, request, *args, **kwargs):

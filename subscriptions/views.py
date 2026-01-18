@@ -28,13 +28,45 @@ def get_razorpay_client():
     return razorpay.Client(auth=(key_id, key_secret))
 
 
-# ==================== NEW SUBSCRIPTION SYSTEM ====================
+# ==================== SUBSCRIPTION PLAN VIEWS ====================
 
 class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Public API to list available subscription plans
-    GET /api/subscriptions/plans/ - List all active plans
-    GET /api/subscriptions/plans/{id}/ - Get plan details
+    GET /api/subscriptions/plans/ - List all active subscription plans
+    GET /api/subscriptions/plans/{id}/ - Get specific plan details
+    GET /api/subscriptions/plans/base_plan/ - Get the mandatory base plan
+    GET /api/subscriptions/plans/addons/ - List all available add-on plans
+    
+    Public API to view available subscription plans. No authentication required.
+    Plans include base (mandatory) and add-on (optional) subscriptions.
+    
+    Permission: Public (AllowAny)
+    
+    Query Parameters:
+        - type: Filter by plan type ('base' or 'addon')
+    
+    Example Requests:
+        GET /api/subscriptions/plans/
+        GET /api/subscriptions/plans/?type=addon
+        GET /api/subscriptions/plans/base_plan/
+        GET /api/subscriptions/plans/addons/
+    
+    Example Response:
+        {
+            "id": "uuid",
+            "name": "Basic Recruitment Package",
+            "plan_type": "base",
+            "description": "Essential job placement services",
+            "base_price": "99.00",
+            "billing_cycle": "monthly",
+            "is_mandatory": true,
+            "is_active": true,
+            "features": {
+                "resume_review": true,
+                "job_matching": true,
+                "interview_prep": false
+            }
+        }
     """
     queryset = SubscriptionPlan.objects.filter(is_active=True)
     serializer_class = SubscriptionPlanSerializer
@@ -72,12 +104,50 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
 
 class UserSubscriptionViewSet(viewsets.ModelViewSet):
     """
-    User subscription management
-    GET /api/subscriptions/my-subscriptions/ - List user's subscriptions
-    POST /api/subscriptions/my-subscriptions/ - Create new subscription (after payment)
+    GET /api/subscriptions/my-subscriptions/ - List user's active subscriptions
+    POST /api/subscriptions/my-subscriptions/ - Create new subscription
     GET /api/subscriptions/my-subscriptions/{id}/ - Get subscription details
     PATCH /api/subscriptions/my-subscriptions/{id}/ - Update subscription
     DELETE /api/subscriptions/my-subscriptions/{id}/ - Cancel subscription
+    POST /api/subscriptions/my-subscriptions/{id}/activate/ - Activate subscription after payment
+    POST /api/subscriptions/my-subscriptions/{id}/cancel/ - Cancel subscription
+    GET /api/subscriptions/my-subscriptions/summary/ - Get subscription summary with billing
+    
+    User subscription management for authenticated users. Users can view, create, and manage
+    their own subscriptions. Includes base plan and optional add-ons.
+    
+    Permission: Authenticated users only
+    
+    Workflow:
+        1. User registers and gets approved by admin
+        2. User creates subscription (POST /my-subscriptions/)
+        3. User completes payment via Razorpay
+        4. User activates subscription (POST /my-subscriptions/{id}/activate/)
+        5. Profile status automatically updated to 'ready_to_assign'
+    
+    Example Request (Create):
+        POST /api/subscriptions/my-subscriptions/
+        {
+            "plan_id": "uuid-of-plan",
+            "billing_cycle": "monthly"
+        }
+    
+    Example Response:
+        {
+            "id": "uuid",
+            "plan": {
+                "id": "uuid",
+                "name": "Basic Package",
+                "base_price": "99.00"
+            },
+            "profile": "uuid",
+            "status": "pending",
+            "price": "99.00",
+            "billing_cycle": "monthly",
+            "start_date": null,
+            "end_date": null,
+            "auto_renew": true
+        }
     """
     serializer_class = UserSubscriptionSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -785,44 +855,4 @@ class SubscriptionPaymentWebhookView(APIView):
         })
 
 
-# ==================== LEGACY SUBSCRIPTION VIEWS ====================
 
-class SubscriptionListCreateView(ProfileResolveMixin, generics.ListCreateAPIView):
-    """
-    DEPRECATED: Use UserSubscriptionViewSet instead
-    Kept for backward compatibility
-    """
-    queryset = Subscription.objects.all()
-    serializer_class = SubscriptionSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        plan = request.data.get('plan')
-        profile = self.get_profile()
-        # Create Razorpay subscription (mocked for now)
-        razorpay_sub_id = 'sub_mocked_id'
-        subscription = Subscription.objects.create(
-            profile=profile,
-            plan=plan,
-            razorpay_subscription_id=razorpay_sub_id,
-            status='active'
-        )
-        # Audit log
-        try:
-            from audit.utils import log_action
-            # use profile.id (UUID) for external references
-            log_action(actor=request.user if request.user.is_authenticated else None, action='subscription_created', target=f'Subscription:{subscription.id}', metadata={'plan': plan, 'profile_id': str(profile.id)})
-        except Exception:
-            pass
-        serializer = self.get_serializer(subscription)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class SubscriptionRetrieveUpdateView(generics.RetrieveUpdateAPIView):
-    """
-    DEPRECATED: Use UserSubscriptionViewSet instead
-    Kept for backward compatibility
-    """
-    queryset = Subscription.objects.all()
-    serializer_class = SubscriptionSerializer
-    permission_classes = [permissions.IsAuthenticated]

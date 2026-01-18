@@ -47,6 +47,35 @@
 - **Capacity**: Each recruiter manages 1-3 client candidates
 - **Focus**: Software development, cloud, DevOps, data science roles
 
+### 📚 Complete API Documentation
+
+**NEW!** Comprehensive API documentation covering all 103 endpoints:
+
+- **[📖 Full API Documentation](./API_DOCUMENTATION.md)** - Complete guide with examples for all endpoints
+- **[⚡ Quick Reference Guide](./API_QUICK_REFERENCE.md)** - Quick lookup table for all APIs
+- **[📋 Complete Endpoint List](./API_COMPLETE_ENDPOINT_LIST.md)** - All 103 endpoints organized by module
+- **[🔄 Status Workflow Guide](./CANDIDATE_STATUS_WORKFLOW.md)** - Candidate lifecycle management
+
+These documents cover **103 API endpoints** across all modules:
+- ✅ **Authentication** - Client, Admin, and Recruiter login (3 endpoints)
+- ✅ **User Management** - Registration, profiles, password management (28 endpoints)
+- ✅ **Subscription Management** - Plans, subscriptions, billing, analytics (15 endpoints)
+- ✅ **Client Forms** - Intake sheets, credentials, completion status (7 endpoints)
+- ✅ **Admin APIs** - Candidate management, approvals, analytics (10 endpoints)
+- ✅ **Recruiter System** - Registration, dashboard, assignments (13 endpoints)
+- ✅ **Payment Processing** - Razorpay integration, order creation, verification (4 endpoints)
+- ✅ **Job Management** - Job postings, applications (5 endpoints)
+- ✅ **Onboarding** - Workflow tracking, progress updates (4 endpoints)
+- ✅ **Webhooks** - Payment notifications (2 endpoints)
+- ✅ **Public Endpoints** - Contact and interest forms (2 endpoints)
+
+Each endpoint includes:
+- Request/response examples with all fields
+- Query parameters and filtering options
+- Permission requirements
+- Error handling and status codes
+- Complete workflow descriptions
+
 ---
 
 ---

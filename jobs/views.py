@@ -6,18 +6,35 @@ from .serializers import JobSerializer
 
 
 class JobListCreate(generics.ListCreateAPIView):
-    """List all job postings or create a new job posting"""
+    """
+    Job Postings API - List and Create
+    GET /api/jobs/ - List all job postings (Public)
+    POST /api/jobs/ - Create new job posting (Admin/Recruiter only)
+    """
     queryset = Job.objects.all()
     serializer_class = JobSerializer
     
     @swagger_auto_schema(
         operation_summary="List all job postings",
-        operation_description="Retrieve a list of all active job postings. Returns detailed job information including requirements, responsibilities, and compensation. Supports filtering and pagination.",
+        operation_description="""Retrieve a list of all active job postings with pagination and search.
+        
+Returns job information including title, company, location, salary range, requirements, and application deadline.
+
+Query Parameters:
+- page: Page number for pagination (default: 1)
+- page_size: Items per page (default: 10, max: 100)
+- search: Search by job title or company name
+
+Example: GET /api/jobs/?search=software engineer&page=1""",
         manual_parameters=[
             openapi.Parameter('page', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description='Page number for pagination'),
+            openapi.Parameter('page_size', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description='Items per page (max 100)'),
             openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING, description='Search by job title or company'),
         ],
-        responses={200: JobSerializer(many=True)},
+        responses={
+            200: openapi.Response('List of job postings', JobSerializer(many=True)),
+            400: 'Bad request'
+        },
         tags=['Jobs']
     )
     def get(self, request, *args, **kwargs):
@@ -25,11 +42,29 @@ class JobListCreate(generics.ListCreateAPIView):
     
     @swagger_auto_schema(
         operation_summary="Create a new job posting",
-        operation_description="Create a new job posting. Only recruiters and admins can post jobs. Requires authentication and proper permissions.",
+        operation_description="""Create a new job posting.
+        
+Permission: Admin or Recruiter only
+Requires authentication and proper permissions.
+
+Required fields: title, company, location, job_type, description
+Optional fields: salary_range, requirements, responsibilities, benefits, application_deadline
+
+Example Request:
+{
+  "title": "Senior Software Engineer",
+  "company": "Tech Corp",
+  "location": "San Francisco, CA",
+  "job_type": "Full-time",
+  "salary_range": "$120,000 - $180,000",
+  "description": "We are seeking...",
+  "requirements": "5+ years Python, AWS",
+  "is_active": true
+}""",
         request_body=JobSerializer,
         responses={
             201: openapi.Response('Job created successfully', JobSerializer),
-            400: 'Invalid job data',
+            400: 'Invalid job data - validation errors',
             401: 'Authentication required',
             403: 'Permission denied - only recruiters/admins can create jobs'
         },
