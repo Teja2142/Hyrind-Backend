@@ -20,5 +20,6 @@ tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.5.0
 django-cors-headers==3.13.0
+mysqlclient==2.2.4
 razorpay
 python-dateutil>=2.8.2,<3.0.0

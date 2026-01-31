@@ -166,8 +166,12 @@ WSGI_APPLICATION = 'hyrind.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('DB_NAME', 'hyrind'),
+        'USER': os.environ.get('DB_USER', 'gktech'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', '82.29.164.112'),
+        'PORT': os.environ.get('DB_PORT', '3306'),
     }
 }
 

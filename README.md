@@ -229,36 +229,41 @@ Hyrind-Backend/
 
 ### Prerequisites
 - **Python**: 3.10 or higher
-- **pip**: Python package manager
+- **MySQL Server**: 8.0 or higher
 - **Git**: Version control
 - **Virtual Environment**: Recommended for isolation
 
 ### 🔥 Fast Setup (Recommended)
 
 ```powershell
-# Windows PowerShell - Complete setup in 3 minutes
-# Clone repository
+# Windows PowerShell - Complete setup in 5 minutes
+
+# 1. Clone repository
 git clone https://github.com/Teja2142/Hyrind-Backend.git
 cd Hyrind-Backend
 
-# Create virtual environment
-python -m venv hy_env
-.\hy_env\Scripts\Activate.ps1
+# 2. Create virtual environment
+python -m venv hire_venv
+.\hire_venv\Scripts\Activate.ps1
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Setup environment
+# 4. Setup environment variables
 copy .env.example .env
-# Edit .env with your email settings (optional for basic testing)
+# Edit .env with your MySQL and email settings
 
-# Initialize database with fresh migrations
+# 5. Setup MySQL database
+# - Start MySQL service: net start mysql
+# - Create database: CREATE DATABASE hyrind;
+
+# 6. Initialize database with migrations
 python manage.py migrate
 
-# Create test data (includes admin, candidate, recruiter)
-python create_test_data.py
+# 7. Create superuser (optional)
+python manage.py createsuperuser
 
-# Start server
+# 8. Start server
 python manage.py runserver
 ```
 
@@ -272,28 +277,32 @@ python manage.py runserver
 ### 🐧 Linux/macOS Setup
 
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/Teja2142/Hyrind-Backend.git
 cd Hyrind-Backend
 
-# Create virtual environment
-python3 -m venv hy_env
-source hy_env/bin/activate
+# 2. Create virtual environment
+python3 -m venv hire_venv
+source hire_venv/bin/activate
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Setup environment
+# 4. Setup environment variables
 cp .env.example .env
-# Edit .env as needed
+# Edit .env with your MySQL and email settings
 
-# Initialize database
+# 5. Setup MySQL database
+# Start MySQL: sudo systemctl start mysql (Linux) or brew services start mysql (macOS)
+# Create database: mysql -u root -p -e "CREATE DATABASE hyrind;"
+
+# 6. Initialize database
 python manage.py migrate
 
-# Create test data
-python create_test_data.py
+# 7. Create superuser (optional)
+python manage.py createsuperuser
 
-# Start server
+# 8. Start server
 python manage.py runserver
 ```
 
@@ -429,31 +438,56 @@ python manage.py createsuperuser
 Create a `.env` file in the root directory with the following variables:
 
 ```env
-# Django Settings
-SECRET_KEY=your-secret-key-here
+# ===========================================
+# DJANGO CORE SETTINGS
+# ===========================================
+SECRET_KEY=your-super-secret-key-here-change-this-in-production
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
 
-# Database (optional - defaults to SQLite)
-DATABASE_URL=sqlite:///db.sqlite3
+# ===========================================
+# DATABASE CONFIGURATION (MySQL)
+# ===========================================
+DB_NAME=hyrind
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_HOST=localhost
+DB_PORT=3306
 
-# Email Configuration (Gmail)
+# ===========================================
+# EMAIL CONFIGURATION
+# ===========================================
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-email@gmail.com
-EMAIL_HOST_PASSWORD=your-app-password
+EMAIL_HOST_PASSWORD=your-gmail-app-password
 DEFAULT_FROM_EMAIL=your-email@gmail.com
 OPERATIONS_EMAIL=hyrind.operations@gmail.com
 
-# Stripe Payment (optional)
-STRIPE_PUBLIC_KEY=pk_test_...
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+# For development (no emails sent):
+# EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 
-# JWT Settings (optional - has defaults)
-JWT_ACCESS_TOKEN_LIFETIME=5  # minutes
+# ===========================================
+# PAYMENT GATEWAYS
+# ===========================================
+
+# Razorpay Configuration
+RAZORPAY_KEY_ID=rzp_test_your_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_secret_key
+RAZORPAY_WEBHOOK_SECRET=whsec_your_webhook_secret
+RAZORPAY_CURRENCY=USD
+
+# Stripe Configuration (Optional)
+STRIPE_PUBLIC_KEY=pk_test_your_stripe_public_key
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret
+
+# ===========================================
+# JWT CONFIGURATION (Optional - has defaults)
+# ===========================================
+JWT_ACCESS_TOKEN_LIFETIME=30  # minutes
 JWT_REFRESH_TOKEN_LIFETIME=1440  # minutes (24 hours)
 ```
 
