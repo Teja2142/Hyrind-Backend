@@ -398,6 +398,47 @@ Dashboard:   http://127.0.0.1:8000/recruiter-registration/dashboard/
 - Specialization: Software Development
 - Max Clients: 3
 - Current Clients: 0
+
+---
+
+**Environment Configuration**
+
+- **Supported filenames:** `properties-dev.env`, `properties-qa.env`, `properties-stag.env`, `properties-prod.env`.
+- **Which env var selects the file:** Set `HYRIND_ENV`, `DJANGO_ENV`, or `ENV` to one of `dev`, `qa`, `stag`, or `prod`. The loader in `hyrind/settings.py` will prefer `properties-<env>.env` and fall back to a legacy `.env` when present.
+- **Do NOT store secrets in the repo:** `SECRET_KEY`, database passwords, email passwords, and third-party API keys have been removed from the repository templates. Inject them at deploy-time from environment variables or a secrets manager.
+
+Example systemd service snippet (set environment from a secure file):
+
+```ini
+[Service]
+EnvironmentFile=/etc/hyrind/properties-prod.env
+Environment=HYRIND_ENV=prod
+ExecStart=/path/to/hire_venv/bin/gunicorn hyrind.wsgi:application
+``` 
+
+Example `docker-compose.yml` fragment using an external env file or secrets:
+
+```yaml
+services:
+  hyrind:
+    image: hyrind-backend:latest
+    env_file:
+      - ./properties-prod.env   # keep this out of the image; mount at deploy time
+    environment:
+      - HYRIND_ENV=prod
+    secrets:
+      - db_password
+
+secrets:
+  db_password:
+    external: true
+```
+
+Quick checklist when deploying:
+- Ensure `properties-<env>.env` is present on the host (or inject variables via CI/CD).
+- Populate `SECRET_KEY`, `DB_PASSWORD`, `EMAIL_HOST_PASSWORD`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, etc., from your secret store.
+- Set `HYRIND_ENV` (or `DJANGO_ENV`/`ENV`) to the matching environment token.
+
 - Joining Date: Today
 
 **Web Access:**

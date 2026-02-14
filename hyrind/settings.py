@@ -2,10 +2,42 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+ 
+# Determine runtime environment and load corresponding properties-*.env file.
+# Set `HYRIND_ENV`, `DJANGO_ENV`, or `ENV` in your deployment to one of:
+# 'dev', 'qa', 'perf', 'stag', 'prod' (or synonyms like 'staging', 'production').
+# Loader prefers files named `properties-<env>.env` (e.g. properties-dev.env).
+ENV_NAME = (
+    os.environ.get('HYRIND_ENV')
+    or os.environ.get('DJANGO_ENV')
+    or os.environ.get('ENV')
+    or 'dev'
+).lower()
+
+# Normalize common synonyms to the short tokens used in filenames
+_ENV_MAP = {
+    'production': 'prod',
+    'prod': 'prod',
+    'staging': 'stag',
+    'stage': 'stag',
+    'stag': 'stag',
+    'qa': 'qa',
+    'performance': 'perf',
+    'perf': 'perf',
+    'development': 'dev',
+    'dev': 'dev',
+}
+ENV_NAME = _ENV_MAP.get(ENV_NAME, ENV_NAME)
+
+env_path = BASE_DIR / f'properties-{ENV_NAME}.env'
+if env_path.exists():
+    load_dotenv(dotenv_path=str(env_path))
+else:
+    # fallback to legacy `.env` if present
+    default_env = BASE_DIR / '.env'
+    if default_env.exists():
+        load_dotenv(dotenv_path=str(default_env))
 
 SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
