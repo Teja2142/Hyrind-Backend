@@ -1,0 +1,133 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .form-row {
+        margin-bottom: 20px;
+    }
+    .form-row label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .helptext {
+        display: block;
+        color: #666;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+    .submit-row {
+        margin-top: 30px;
+        padding: 10px;
+        background: #f8f8f8;
+        border-top: 1px solid #ddd;
+    }
+    .errorlist {
+        color: #ba2121;
+        margin: 5px 0;
+        padding: 0;
+        list-style: none;
+    }
+    textarea, input[type="text"], select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .module {
+        max-width: 800px;
+        margin: 20px auto;
+    }
+    h1 {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'admin:jobs_userrolesuggestion_changelist' %}">Role Suggestions</a>
+    &rsaquo; Bulk Create
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="module">
+    <h1>{{ title }}</h1>
+    
+    <p style="color: #666; margin-bottom: 20px;">
+        Create multiple role suggestions for a user at once. Enter 1-10 role titles, one per line.
+    </p>
+
+    <form method="post" action="">
+        {% csrf_token %}
+        
+        {% if form.non_field_errors %}
+            <div class="errorlist">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        <div class="form-row">
+            <label for="{{ form.user.id_for_label }}">{{ form.user.label }}</label>
+            {% if form.user.errors %}
+                <ul class="errorlist">
+                    {% for error in form.user.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {{ form.user }}
+            <span class="helptext">{{ form.user.help_text }}</span>
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.role_titles.id_for_label }}">{{ form.role_titles.label }}</label>
+            {% if form.role_titles.errors %}
+                <ul class="errorlist">
+                    {% for error in form.role_titles.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {{ form.role_titles }}
+            <span class="helptext">{{ form.role_titles.help_text }}</span>
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.role_category.id_for_label }}">{{ form.role_category.label }}</label>
+            {% if form.role_category.errors %}
+                <ul class="errorlist">
+                    {% for error in form.role_category.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {{ form.role_category }}
+            <span class="helptext">{{ form.role_category.help_text }}</span>
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.admin_notes.id_for_label }}">{{ form.admin_notes.label }}</label>
+            {% if form.admin_notes.errors %}
+                <ul class="errorlist">
+                    {% for error in form.admin_notes.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {{ form.admin_notes }}
+            <span class="helptext">{{ form.admin_notes.help_text }}</span>
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Create Suggestions" class="default" />
+            <a href="{% url 'admin:jobs_userrolesuggestion_changelist' %}" class="button cancel-link">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,121 +1,194 @@
 from django.contrib import admin
-from .models import Job, JobRole, UserRoleRecommendation, UserSkillProfile, RecommendationFeedback
+from django import forms
+from .models import Job, UserRoleSuggestion
+
+
+class BulkRoleSuggestionForm(forms.Form):
+    """Form for creating multiple role suggestions at once"""
+    user = forms.ModelChoiceField(
+        queryset=None,  # Set in __init__
+        label="User/Client",
+        help_text="Select the user to receive role suggestions"
+    )
+    role_titles = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 10, 'cols': 60, 'placeholder': 'Enter one role per line, e.g.:\nSoftware Engineer\nData Analyst\nBackend Developer\nML Engineer'}),
+        label="Role Titles (one per line)",
+        help_text="Enter 1-10 role titles, one per line. Each will create a separate suggestion."
+    )
+    role_category = forms.CharField(
+        max_length=100,
+        required=False,
+        label="Category (optional)",
+        help_text="Optional category for all roles (e.g., Engineering, Data Science)",
+        widget=forms.TextInput(attrs={'placeholder': 'e.g., Engineering'})
+    )
+    admin_notes = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3, 'cols': 60, 'placeholder': 'Optional notes explaining why these roles are suggested'}),
+        required=False,
+        label="Admin Notes (optional)",
+        help_text="These notes will be applied to all role suggestions"
+    )
+    
+    def __init__(self, *args, **kwargs):
+        from django.contrib.auth.models import User
+        super().__init__(*args, **kwargs)
+        self.fields['user'].queryset = User.objects.filter(is_active=True).order_by('username')
+    
+    def clean_role_titles(self):
+        """Validate role titles"""
+        role_titles_text = self.cleaned_data['role_titles']
+        
+        # Split by newlines and clean
+        roles = [line.strip() for line in role_titles_text.strip().split('\n') if line.strip()]
+        
+        if not roles:
+            raise forms.ValidationError("Please enter at least one role title.")
+        
+        if len(roles) > 10:
+            raise forms.ValidationError(f"Maximum 10 roles allowed. You entered {len(roles)} roles.")
+        
+        # Check for duplicates
+        if len(roles) != len(set(roles)):
+            raise forms.ValidationError("Duplicate role titles found. Please ensure each role is unique.")
+        
+        return roles
+
 
 @admin.register(Job)
 class JobAdmin(admin.ModelAdmin):
     list_display = ('title', 'posted_by', 'price', 'is_open')
 
 
-@admin.register(JobRole)
-class JobRoleAdmin(admin.ModelAdmin):
-    """Admin for JobRole model"""
+@admin.register(UserRoleSuggestion)
+class UserRoleSuggestionAdmin(admin.ModelAdmin):
+    """
+    Admin interface for managing role suggestions
+    Admins can type role titles directly - no predefined database needed
+    """
     list_display = [
-        'title', 'category', 'min_years_experience', 'max_years_experience',
-        'is_active', 'popularity_score', 'created_at'
+        'user', 'role_title', 'role_category', 'added_by', 'is_selected', 
+        'selected_at', 'created_at'
     ]
-    list_filter = ['category', 'is_active', 'min_years_experience']
-    search_fields = ['title', 'category', 'description']
-    readonly_fields = ['id', 'created_at', 'updated_at']
+    list_filter = ['is_selected', 'role_category', 'created_at']
+    search_fields = ['user__username', 'user__email', 'role_title', 'role_category', 'admin_notes']
+    readonly_fields = ['id', 'selected_at', 'created_at']
+    autocomplete_fields = ['user']
     
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('id', 'title', 'category', 'description', 'alternative_titles')
+        ('User Selection', {
+            'fields': ('user',),
+            'description': 'Select the user/client for this role suggestion'
         }),
-        ('Requirements', {
-            'fields': (
-                'required_skills', 'preferred_skills', 'required_degrees',
-                'min_years_experience', 'max_years_experience'
+        ('Role Details', {
+            'fields': ('role_title', 'role_category'),
+            'description': 'Enter role title and optional category (e.g., Engineering, Marketing)'
+        }),
+        ('Admin Information', {
+            'fields': ('added_by', 'admin_notes'),
+            'description': 'Optional notes on why this role is suggested'
+        }),
+        ('User Selection Status', {
+            'fields': ('is_selected', 'selected_at'),
+            'classes': ('collapse',),
+            'description': 'Automatically updated when user selects/deselects'
+        }),
+        ('Timestamps', {
+            'fields': ('id', 'created_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['bulk_create_suggestions']
+    
+    def save_model(self, request, obj, form, change):
+        """Auto-set added_by to current admin user"""
+        if not change:  # Only on creation
+            obj.added_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def get_queryset(self, request):
+        """Optimize query with select_related"""
+        qs = super().get_queryset(request)
+        return qs.select_related('user', 'added_by')
+    
+    def get_urls(self):
+        """Add custom URL for bulk creation"""
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('bulk-create/', self.admin_site.admin_view(self.bulk_create_view), name='jobs_userrolesuggestion_bulk_create'),
+        ]
+        return custom_urls + urls
+    
+    def bulk_create_view(self, request):
+        """View for bulk creating role suggestions"""
+        from django.shortcuts import render, redirect
+        from django.contrib import messages
+        
+        if request.method == 'POST':
+            form = BulkRoleSuggestionForm(request.POST)
+            if form.is_valid():
+                created_count, skipped_count = self._create_bulk_suggestions(request, form)
+                self._show_bulk_messages(request, created_count, skipped_count, form.cleaned_data['user'].username)
+                return redirect('admin:jobs_userrolesuggestion_changelist')
+        else:
+            form = BulkRoleSuggestionForm()
+        
+        context = {
+            'form': form,
+            'title': 'Bulk Create Role Suggestions',
+            'site_title': 'Hyrind Admin',
+            'site_header': 'Hyrind Admin',
+            'has_permission': True,
+        }
+        return render(request, 'admin/jobs/bulk_create_suggestions.html', context)
+    
+    def _create_bulk_suggestions(self, request, form):
+        """Helper method to create bulk suggestions"""
+        user = form.cleaned_data['user']
+        role_titles = form.cleaned_data['role_titles']
+        role_category = form.cleaned_data.get('role_category', '')
+        admin_notes = form.cleaned_data.get('admin_notes', '')
+        
+        created_count = 0
+        skipped_count = 0
+        
+        for role_title in role_titles:
+            exists = UserRoleSuggestion.objects.filter(user=user, role_title=role_title).exists()
+            
+            if exists:
+                skipped_count += 1
+                continue
+            
+            UserRoleSuggestion.objects.create(
+                user=user,
+                role_title=role_title,
+                role_category=role_category,
+                admin_notes=admin_notes,
+                added_by=request.user
             )
-        }),
-        ('Metadata', {
-            'fields': ('avg_salary_min', 'avg_salary_max', 'popularity_score', 'is_active')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
-
-
-@admin.register(UserRoleRecommendation)
-class UserRoleRecommendationAdmin(admin.ModelAdmin):
-    """Admin for UserRoleRecommendation model"""
-    list_display = [
-        'user', 'role', 'match_score', 'is_interested', 'is_dismissed',
-        'viewed_at', 'created_at'
-    ]
-    list_filter = ['is_interested', 'is_dismissed', 'created_at']
-    search_fields = ['user__username', 'role__title']
-    readonly_fields = [
-        'id', 'match_score', 'skill_match_score', 'experience_match_score',
-        'education_match_score', 'matched_skills', 'missing_skills',
-        'recommendation_reason', 'viewed_at', 'created_at', 'updated_at'
-    ]
+            created_count += 1
+        
+        return created_count, skipped_count
     
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('id', 'user', 'role')
-        }),
-        ('Match Scores', {
-            'fields': (
-                'match_score', 'skill_match_score', 'experience_match_score',
-                'education_match_score'
+    def _show_bulk_messages(self, request, created_count, skipped_count, username):
+        """Helper method to show bulk operation messages"""
+        from django.contrib import messages
+        
+        if created_count > 0:
+            messages.success(
+                request,
+                f"Successfully created {created_count} role suggestion(s) for {username}."
             )
-        }),
-        ('Matching Details', {
-            'fields': ('matched_skills', 'missing_skills', 'recommendation_reason')
-        }),
-        ('User Interaction', {
-            'fields': ('is_interested', 'is_dismissed', 'viewed_at')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
-
-
-@admin.register(UserSkillProfile)
-class UserSkillProfileAdmin(admin.ModelAdmin):
-    """Admin for UserSkillProfile model"""
-    list_display = [
-        'user', 'highest_degree', 'total_years_experience',
-        'profile_completeness', 'last_updated_from_intake', 'created_at'
-    ]
-    list_filter = ['highest_degree', 'profile_completeness', 'created_at']
-    search_fields = ['user__username', 'highest_degree', 'field_of_study']
-    readonly_fields = [
-        'id', 'profile_completeness', 'last_updated_from_intake',
-        'created_at', 'updated_at'
-    ]
+        if skipped_count > 0:
+            messages.warning(
+                request,
+                f"Skipped {skipped_count} duplicate role(s) that already exist."
+            )
     
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('id', 'user')
-        }),
-        ('Skills', {
-            'fields': ('primary_skills', 'secondary_skills', 'learning_skills')
-        }),
-        ('Experience', {
-            'fields': ('total_years_experience', 'industries')
-        }),
-        ('Education', {
-            'fields': ('highest_degree', 'field_of_study')
-        }),
-        ('Preferences', {
-            'fields': ('desired_roles', 'preferred_locations', 'job_type_preference')
-        }),
-        ('Metadata', {
-            'fields': ('profile_completeness', 'last_updated_from_intake')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
+    class Media:
+        css = {
+            'all': ('admin/css/forms.css',)
+        }
 
-
-@admin.register(RecommendationFeedback)
-class RecommendationFeedbackAdmin(admin.ModelAdmin):
-    """Admin for RecommendationFeedback model"""
-    list_display = ['recommendation', 'feedback_type', 'created_at']
-    list_filter = ['feedback_type', 'created_at']
-    search_fields = ['recommendation__user__username', 'recommendation__role__title', 'comment']
     readonly_fields = ['id', 'created_at']

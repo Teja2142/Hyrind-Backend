@@ -60,7 +60,8 @@ We received a request to reset your password for your Hyrind account.
 Click the link below to reset your password:
 {reset_link}
 
-This link will expire in 24 hours for security reasons.
+This link will verify your identity and allow you to set a new password.
+The link will expire in 24 hours for security reasons.
 
 If you didn't request a password reset, please ignore this email or contact support if you have concerns.
 
@@ -101,7 +102,7 @@ Hyrind Team
                             </p>
                             
                             <p style="margin: 0 0 30px; color: #333333; font-size: 16px; line-height: 1.5;">
-                                Click the button below to reset your password:
+                                Click the button below to verify your identity and set a new password:
                             </p>
                             
                             <table role="presentation" style="margin: 0 auto;">

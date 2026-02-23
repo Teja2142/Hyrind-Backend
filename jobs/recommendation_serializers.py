@@ -1,119 +1,93 @@
 """
-Serializers for role recommendation API
+Serializers for role suggestions API
+Ultra-simple serializers for admin-managed role suggestions
 """
 from rest_framework import serializers
-from .models import (
-    JobRole, UserRoleRecommendation, UserSkillProfile, RecommendationFeedback
-)
+from .models import UserRoleSuggestion
 
 
-class JobRoleSerializer(serializers.ModelSerializer):
-    """Serializer for job roles"""
+class RoleSuggestionSerializer(serializers.ModelSerializer):
+    """Simple serializer for role suggestions"""
+    added_by_name = serializers.SerializerMethodField()
     
     class Meta:
-        model = JobRole
+        model = UserRoleSuggestion
         fields = [
-            'id', 'title', 'category', 'description', 'required_skills',
-            'preferred_skills', 'min_years_experience', 'max_years_experience',
-            'required_degrees', 'alternative_titles', 'avg_salary_min',
-            'avg_salary_max', 'is_active', 'popularity_score', 'created_at'
+            'id', 'role_title', 'role_category', 'admin_notes',
+            'is_selected', 'selected_at', 'submitted_at',
+            'added_by_name', 'created_at'
         ]
-        read_only_fields = ['id', 'created_at']
-
-
-class JobRoleSummarySerializer(serializers.ModelSerializer):
-    """Lightweight serializer for job role listing"""
+        read_only_fields = ['id', 'added_by_name', 'selected_at', 'submitted_at', 'created_at']
     
-    class Meta:
-        model = JobRole
-        fields = [
-            'id', 'title', 'category', 'min_years_experience',
-            'max_years_experience', 'popularity_score'
-        ]
+    def get_added_by_name(self, obj):
+        """Get the name of admin who added this suggestion"""
+        if obj.added_by:
+            if hasattr(obj.added_by, 'profile'):
+                profile = obj.added_by.profile
+                return f"{profile.first_name} {profile.last_name}".strip() or obj.added_by.username
+            return obj.added_by.username
+        return "System"
 
 
-class UserRoleRecommendationSerializer(serializers.ModelSerializer):
-    """Serializer for user role recommendations"""
-    role = JobRoleSerializer(read_only=True)
+class BulkCreateRoleSuggestionsSerializer(serializers.Serializer):
+    """
+    Serializer for bulk creating role suggestions (Admin API)
+    Accepts multiple role titles at once
+    """
+    user_id = serializers.IntegerField(
+        help_text="User ID to receive role suggestions",
+        required=True
+    )
+    role_titles = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        help_text="List of role titles (1-10 roles)",
+        min_length=1,
+        max_length=10
+    )
+    role_category = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="Optional category for all roles (e.g., Engineering)"
+    )
+    admin_notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional notes applied to all suggestions"
+    )
     
-    class Meta:
-        model = UserRoleRecommendation
-        fields = [
-            'id', 'role', 'match_score', 'skill_match_score',
-            'experience_match_score', 'education_match_score', 'matched_skills',
-            'missing_skills', 'recommendation_reason', 'is_interested',
-            'is_dismissed', 'viewed_at', 'created_at'
-        ]
-        read_only_fields = [
-            'id', 'match_score', 'skill_match_score', 'experience_match_score',
-            'education_match_score', 'matched_skills', 'missing_skills',
-            'recommendation_reason', 'viewed_at', 'created_at'
-        ]
-
-
-class UserRoleRecommendationSummarySerializer(serializers.ModelSerializer):
-    """Lightweight serializer for recommendation listing"""
-    role = JobRoleSummarySerializer(read_only=True)
+    def validate_role_titles(self, value):
+        """Validate role titles"""
+        # Remove duplicates while preserving order
+        unique_titles = []
+        seen = set()
+        for title in value:
+            title_clean = title.strip()
+            if title_clean and title_clean not in seen:
+                unique_titles.append(title_clean)
+                seen.add(title_clean)
+        
+        if not unique_titles:
+            raise serializers.ValidationError("At least one valid role title is required.")
+        
+        return unique_titles
     
-    class Meta:
-        model = UserRoleRecommendation
-        fields = [
-            'id', 'role', 'match_score', 'recommendation_reason',
-            'is_interested', 'is_dismissed', 'created_at'
-        ]
-
-
-class UserSkillProfileSerializer(serializers.ModelSerializer):
-    """Serializer for user skill profiles"""
-    user_email = serializers.EmailField(source='user.email', read_only=True)
-    user_name = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = UserSkillProfile
-        fields = [
-            'id', 'user', 'user_email', 'user_name', 'primary_skills',
-            'secondary_skills', 'learning_skills', 'total_years_experience',
-            'industries', 'highest_degree', 'field_of_study', 'desired_roles',
-            'preferred_locations', 'job_type_preference', 'profile_completeness',
-            'last_updated_from_intake', 'created_at', 'updated_at'
-        ]
-        read_only_fields = [
-            'id', 'user', 'profile_completeness', 'last_updated_from_intake',
-            'created_at', 'updated_at'
-        ]
-    
-    def get_user_name(self, obj):
-        """Get user's full name"""
-        if hasattr(obj.user, 'profile'):
-            profile = obj.user.profile
-            return f"{profile.first_name} {profile.last_name}".strip() or obj.user.username
-        return obj.user.username
-
-
-class RecommendationFeedbackSerializer(serializers.ModelSerializer):
-    """Serializer for recommendation feedback"""
-    
-    class Meta:
-        model = RecommendationFeedback
-        fields = [
-            'id', 'recommendation', 'feedback_type', 'comment', 'created_at'
-        ]
-        read_only_fields = ['id', 'created_at']
-
-
-class RecommendationActionSerializer(serializers.Serializer):
-    """Serializer for recommendation actions (interest, dismiss)"""
-    action = serializers.ChoiceField(choices=['interested', 'dismiss', 'view'])
-    
-    def validate_action(self, value):
-        """Validate action"""
-        if value not in ['interested', 'dismiss', 'view']:
-            raise serializers.ValidationError("Invalid action. Must be 'interested', 'dismiss', or 'view'")
+    def validate_user_id(self, value):
+        """Validate user exists"""
+        from django.contrib.auth.models import User
+        if not User.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError("User not found or inactive.")
         return value
 
 
-class GenerateRecommendationsSerializer(serializers.Serializer):
-    """Serializer for generating recommendations"""
-    limit = serializers.IntegerField(default=10, min_value=1, max_value=50)
-    force_refresh = serializers.BooleanField(default=False)
-    category = serializers.CharField(required=False, allow_blank=True)
+class RoleSuggestionUpdateSerializer(serializers.Serializer):
+    """Serializer for updating role selection status"""
+    is_selected = serializers.BooleanField(required=True)
+
+
+class BulkRoleSuggestionUpdateSerializer(serializers.Serializer):
+    """Serializer for bulk updating role selections"""
+    suggestion_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="List of role suggestion IDs to mark as selected"
+    )

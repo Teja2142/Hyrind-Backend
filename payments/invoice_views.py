@@ -30,6 +30,10 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Return invoices for authenticated user"""
+        # Avoid querying during Swagger schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return Invoice.objects.none()
+        
         user = self.request.user
         
         # Admin can see all invoices

@@ -9,6 +9,9 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
 from django.db import models as django_models
 from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Constants
 DEFAULT_OPERATIONS_EMAIL = 'hyrind.operations@gmail.com'
@@ -762,7 +765,7 @@ class RegistrationView(generics.GenericAPIView):
             )
             
         except Exception as e:
-            print(f"✗ Failed to send welcome email to user: {str(e)}")
+            logger.error(f"Failed to send welcome email: {str(e)}")
     
     def _send_notification_to_admin(self, profile):
         """Send notification email to operations team about new user registration"""
@@ -796,7 +799,7 @@ class RegistrationView(generics.GenericAPIView):
             )
             
         except Exception as e:
-            print(f"✗ Failed to send notification email to admin: {str(e)}")
+            logger.error(f"Failed to send admin notification: {str(e)}")
 
 
 class InterestSubmissionCreateView(generics.CreateAPIView):
@@ -842,10 +845,9 @@ class InterestSubmissionCreateView(generics.CreateAPIView):
             self._attach_resume_if_present(email, instance)
             
             email.send(fail_silently=True)
-            print(f"✓ Sent  email notification to {operations_email}")
             
         except Exception as e:
-            print(f"✗ Failed to send email notification: {str(e)}")
+            logger.error(f"Failed to send interest form notification: {str(e)}")
 
     def _generate_text_email(self, instance):
         """Generate plain text email content."""
@@ -1142,10 +1144,9 @@ class ContactCreateView(generics.CreateAPIView):
             
             email.attach_alternative(html_content, "text/html")
             email.send(fail_silently=True)
-            print(f"✓ Sent contact email notification to {operations_email}")
             
         except Exception as e:
-            print(f"✗ Failed to send contact email notification: {str(e)}")
+            logger.error(f"Failed to send contact email notification: {str(e)}")
 
     def _generate_text_email(self, instance):
         """Generate plain text email content."""
@@ -2176,9 +2177,9 @@ class PasswordResetRequestView(generics.GenericAPIView):
             from .password_reset import generate_reset_token, send_password_reset_email
             uid, token = generate_reset_token(user)
             
-            # Construct reset link (frontend URL)
-            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-            reset_link = f"{frontend_url}/reset-password?uid={uid}&token={token}"
+            # Construct reset link using backend URL
+            backend_url = getattr(settings, 'BACKEND_URL', 'http://127.0.0.1:8000')
+            reset_link = f"{backend_url}/api/users/password-reset/verify?uid={uid}&token={token}"
             
             # Send email
             send_password_reset_email(user, reset_link)
@@ -2219,7 +2220,64 @@ class PasswordResetConfirmView(generics.GenericAPIView):
     serializer_class = PasswordResetConfirmSerializer
     
     @swagger_auto_schema(
-        operation_description="Confirm password reset with token from email",
+        operation_description="Verify password reset token from email link",
+        manual_parameters=[
+            openapi.Parameter('uid', openapi.IN_QUERY, type=openapi.TYPE_STRING, description='User ID (base64)', required=True),
+            openapi.Parameter('token', openapi.IN_QUERY, type=openapi.TYPE_STRING, description='Reset token', required=True),
+        ],
+        responses={
+            200: openapi.Response(
+                'Token is valid',
+                openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'valid': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'uid': openapi.Schema(type=openapi.TYPE_STRING),
+                        'token': openapi.Schema(type=openapi.TYPE_STRING),
+                        'email': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            ),
+            400: 'Invalid or expired token'
+        }
+    )
+    def get(self, request):
+        """Render HTML password reset form when user clicks email link"""
+        from django.shortcuts import render
+        from .password_reset import verify_reset_token
+        
+        uid = request.query_params.get('uid')
+        token = request.query_params.get('token')
+        
+        if not uid or not token:
+            # Render error page
+            return render(request, 'password_reset_form.html', {
+                'error': 'Invalid reset link. Please request a new password reset.'
+            })
+        
+        # Verify token is valid
+        user = verify_reset_token(uid, token)
+        
+        if user is None:
+            # Render error page
+            return render(request, 'password_reset_form.html', {
+                'error': 'This reset link is invalid or has expired. Please request a new password reset.',
+                'uid': None,
+                'token': None,
+                'email': None
+            })
+        
+        # Render the password reset form
+        return render(request, 'password_reset_form.html', {
+            'uid': uid,
+            'token': token,
+            'email': user.email
+        })
+    
+    @swagger_auto_schema(
+        operation_description="Reset password with token from email",
         request_body=PasswordResetConfirmSerializer,
         responses={
             200: openapi.Response(
@@ -2236,6 +2294,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         }
     )
     def post(self, request):
+        """Reset password with token"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         

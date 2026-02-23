@@ -154,6 +154,10 @@ class UserSubscriptionViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Return subscriptions for current user only"""
+        # Avoid querying during Swagger schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return UserSubscription.objects.none()
+        
         if hasattr(self.request.user, 'profile'):
             return UserSubscription.objects.filter(profile=self.request.user.profile)
         return UserSubscription.objects.none()

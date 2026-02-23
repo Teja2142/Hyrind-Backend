@@ -49,6 +49,18 @@ API_STAGING_DOMAIN = 'https://api-staging.hyrind.com'
 STAGING_DOMAIN = 'https://staging.hyrind.com'
 PRODUCTION_DOMAIN = 'https://hyrind.com'
 
+# Backend URL for password reset links - automatically set based on environment
+if ENV_NAME in ['prod', 'production']:
+    BACKEND_URL = os.environ.get('BACKEND_URL', API_DOMAIN)
+elif ENV_NAME in ['stag', 'staging', 'stage']:
+    BACKEND_URL = os.environ.get('BACKEND_URL', API_STAGING_DOMAIN)
+elif ENV_NAME in ['qa']:
+    BACKEND_URL = os.environ.get('BACKEND_URL', 'https://api-qa.hyrind.com')
+elif ENV_NAME in ['perf', 'performance']:
+    BACKEND_URL = os.environ.get('BACKEND_URL', 'https://api-perf.hyrind.com')
+else:  # dev, local, or any other environment
+    BACKEND_URL = os.environ.get('BACKEND_URL', 'http://127.0.0.1:8000')
+
 # Normalize ALLOWED_HOSTS: list hostnames only (no scheme or port).
 # Keep '*' if you still want to allow all hosts during development, but
 # in production prefer a specific list or use an env var.
@@ -196,16 +208,25 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'hyrind.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'hyrind'),
-        'USER': os.environ.get('DB_USER', 'gktech'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', '82.29.164.112'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
+# Database configuration - use SQLite for local development
+if ENV_NAME == 'local' or ENV_NAME == 'dev':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('DB_NAME', 'hyrind'),
+            'USER': os.environ.get('DB_USER', 'gktech'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', '82.29.164.112'),
+            'PORT': os.environ.get('DB_PORT', '3306'),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -229,20 +250,49 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'standard': {
+        'simple': {
+            'format': '[%(levelname)s] %(message)s'
+        },
+        'detailed': {
             'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s'
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'standard',
+            'formatter': 'simple',
+            'level': 'WARNING',
         },
     },
     'loggers': {
+        # Root logger - only warnings and errors
         '': {
             'handlers': ['console'],
-            'level': 'INFO',
+            'level': 'WARNING',
+        },
+        # Silence Django autoreload messages
+        'django.utils.autoreload': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # Silence drf-yasg schema generation warnings
+        'drf_yasg': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # Show errors from our app
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        # Email service - only show actual email send confirmations
+        'utils.email_service': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
         },
     },
 }
@@ -266,9 +316,9 @@ EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gktechnologies.stl@gmail.com')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'wpnx hktu rjis moea')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'gktechnologies.stl@gmail.com')
 OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
 
 # ------------------------ Razorpay Settings ------------------------

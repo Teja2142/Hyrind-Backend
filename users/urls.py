@@ -46,7 +46,9 @@ urlpatterns = [
     # ============================================================================
     # Request password reset (Forgot Password on login page)
     path('password-reset/request/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
-    # Confirm password reset with token from email
+    # Verify token from email link (GET) or confirm password reset (POST)
+    path('password-reset/verify', views.PasswordResetConfirmView.as_view(), name='password-reset-verify'),
+    # Confirm password reset with token from email (legacy endpoint)
     path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     # Change password (Dashboard settings - requires authentication)
     path('password-change/', views.PasswordChangeView.as_view(), name='password-change'),
