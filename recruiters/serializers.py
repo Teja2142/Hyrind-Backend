@@ -22,7 +22,7 @@ class RecruiterSerializer(serializers.ModelSerializer):
             'department', 'department_display', 'specialization', 'specialization_display',
             'date_of_joining', 'max_clients', 'current_clients_count', 'available_slots',
             'total_placements', 'active_applications',
-            'status', 'status_display', 'active', 'verified', 'company_name',
+            'status', 'status_display', 'availability_status', 'active', 'verified', 'company_name',
             'user_email', 'user_name', 'notes',
             'created_at', 'updated_at', 'last_login'
         ]
@@ -229,7 +229,7 @@ class RecruiterListSerializer(serializers.ModelSerializer):
             'id', 'employee_id', 'name', 'email', 'phone', 'user_name',
             'department', 'department_display', 'specialization', 'specialization_display',
             'current_clients_count', 'available_slots', 'total_placements', 'active_applications',
-            'status', 'status_display', 'active', 'total_assignments', 'assigned_clients', 'created_at'
+            'status', 'status_display', 'availability_status', 'active', 'total_assignments', 'assigned_clients', 'created_at'
         ]
     
     def get_available_slots(self, obj):
@@ -263,12 +263,12 @@ class RecruiterListSerializer(serializers.ModelSerializer):
 
 
 class RecruiterAdminUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for admin to update recruiter (can change active status)"""
+    """Serializer for admin to update recruiter (can change active/availability status)"""
     class Meta:
         model = Recruiter
         fields = [
             'name', 'email', 'phone', 'department', 'specialization',
-            'max_clients', 'status', 'active', 'verified', 'notes'
+            'max_clients', 'status', 'availability_status', 'active', 'verified', 'notes'
         ]
     
     def validate_email(self, value):
@@ -287,6 +287,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
         source='recruiter',
         write_only=True
     )
+    profile = serializers.PrimaryKeyRelatedField(read_only=True)
     profile_id = serializers.PrimaryKeyRelatedField(
         queryset=Profile.objects.all(),
         source='profile',
@@ -295,21 +296,69 @@ class AssignmentSerializer(serializers.ModelSerializer):
     profile_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
-    
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
+    reassigned_from_id = serializers.UUIDField(source='reassigned_from.id', read_only=True)
+
     class Meta:
         model = Assignment
         fields = [
             'id', 'profile', 'profile_id', 'profile_name',
             'recruiter', 'recruiter_id',
             'status', 'status_display', 'priority', 'priority_display',
+            'role', 'role_display',
             'assigned_at', 'assigned_by', 'last_activity',
             'placement_date', 'notes', 'internal_comments',
+            'reassigned_from_id', 'reassignment_reason',
             'updated_at'
         ]
         read_only_fields = ['id', 'assigned_at', 'updated_at']
-    
+
     def get_profile_name(self, obj):
         return f"{obj.profile.first_name} {obj.profile.last_name}".strip()
+
+
+class ReassignClientSerializer(serializers.Serializer):
+    """
+    Serializer for reassigning a client from the current recruiter to a new one.
+    Used by admin when a recruiter is absent or for workload rebalancing.
+
+    Expected POST body:
+        new_recruiter_id  (UUID)  - The recruiter to take over the assignment
+        reason            (str)   - Why the reassignment is happening
+        role              (str)   - Role of the new recruiter (default 'primary')
+        priority          (str)   - Priority of the new assignment (default same as original)
+    """
+    new_recruiter_id = serializers.UUIDField(
+        help_text='UUID of the recruiter to reassign the client to'
+    )
+    reason = serializers.CharField(
+        max_length=500,
+        help_text='Reason for reassignment (e.g., recruiter absent, workload rebalancing)'
+    )
+    role = serializers.ChoiceField(
+        choices=Assignment.ROLE_CHOICES,
+        default='primary',
+        help_text='Role of the new recruiter on this assignment'
+    )
+    priority = serializers.ChoiceField(
+        choices=Assignment.PRIORITY_CHOICES,
+        required=False,
+        help_text='Priority of the new assignment (defaults to original assignment priority)'
+    )
+
+    def validate_new_recruiter_id(self, value):
+        try:
+            recruiter = Recruiter.objects.get(id=value, active=True, status='active')
+        except Recruiter.DoesNotExist:
+            raise serializers.ValidationError(
+                'No active recruiter found with the given ID.'
+            )
+        if not recruiter.can_accept_more_clients():
+            raise serializers.ValidationError(
+                f"Recruiter '{recruiter.name}' has reached maximum client capacity "
+                f"or is not available (status: {recruiter.availability_status})."
+            )
+        return value
 
 
 # ============================================================================

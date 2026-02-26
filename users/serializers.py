@@ -19,15 +19,17 @@ class UserPublicSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source='profile.get_registration_status_display', read_only=True)
     assignment_status = serializers.SerializerMethodField()
     recruiter_info = serializers.SerializerMethodField()
+    assignment_statuses = serializers.SerializerMethodField()
+    recruiter_infos = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ('id', 'profile_id', 'email', 'active', 'status', 'status_label', 'assignment_status', 'recruiter_info')
+        fields = ('id', 'profile_id', 'email', 'active', 'status', 'status_label', 'assignment_status', 'recruiter_info', 'assignment_statuses', 'recruiter_infos')
     
     def get_assignment_status(self, obj):
-        """Get client's assignment status to a recruiter"""
+        """Get primary assignment status (backward-compatible)"""
         try:
-            assignment = obj.profile.assignment
+            assignment = obj.profile.assignments.filter(status='active').order_by('-assigned_at').first()
             return {
                 'status': assignment.status,
                 'priority': assignment.priority,
@@ -38,9 +40,9 @@ class UserPublicSerializer(serializers.ModelSerializer):
             return None
     
     def get_recruiter_info(self, obj):
-        """Get assigned recruiter information"""
+        """Get primary recruiter info (backward-compatible)"""
         try:
-            assignment = obj.profile.assignment
+            assignment = obj.profile.assignments.filter(status='active').order_by('-assigned_at').first()
             if assignment.recruiter:
                 recruiter = assignment.recruiter
                 return {
@@ -60,11 +62,55 @@ class UserPublicSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    def get_assignment_statuses(self, obj):
+        """Get all assignment statuses for this profile"""
+        try:
+            assignments = obj.profile.assignments.filter(status='active').order_by('-assigned_at')
+            return [
+                {
+                    'status': assignment.status,
+                    'priority': assignment.priority,
+                    'assigned_at': assignment.assigned_at,
+                    'last_activity': assignment.last_activity,
+                    'recruiter_id': str(assignment.recruiter.id) if assignment.recruiter else None
+                }
+                for assignment in assignments
+            ]
+        except Exception:
+            return []
+
+    def get_recruiter_infos(self, obj):
+        """Get all assigned recruiters info"""
+        try:
+            assignments = obj.profile.assignments.filter(status='active').select_related('recruiter').order_by('-assigned_at')
+            recruiters = []
+            for assignment in assignments:
+                if assignment.recruiter:
+                    recruiter = assignment.recruiter
+                    recruiters.append({
+                        'id': str(recruiter.id),
+                        'name': recruiter.name,
+                        'email': recruiter.email,
+                        'employee_id': recruiter.employee_id,
+                        'phone': recruiter.phone,
+                        'department': recruiter.department,
+                        'department_display': recruiter.get_department_display(),
+                        'specialization': recruiter.specialization,
+                        'specialization_display': recruiter.get_specialization_display(),
+                        'status': recruiter.status,
+                        'active': recruiter.active
+                    })
+            return recruiters
+        except Exception:
+            return []
+
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)  # nested user is read-only for responses
     user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), write_only=True, source='user', required=False)
     assignment_status = serializers.SerializerMethodField()
     recruiter_info = serializers.SerializerMethodField()
+    assignment_statuses = serializers.SerializerMethodField()
+    recruiter_infos = serializers.SerializerMethodField()
     
     # Status fields (Industry Standard naming)
     status = serializers.CharField(source='registration_status', read_only=True)  # Current workflow status
@@ -79,14 +125,14 @@ class ProfileSerializer(serializers.ModelSerializer):
             # Status fields (Industry Standard)
             'status', 'status_label', 'active', 'status_updated_at', 'status_notes',
             # Assignment info
-            'assignment_status', 'recruiter_info'
+            'assignment_status', 'recruiter_info', 'assignment_statuses', 'recruiter_infos'
         ]
         read_only_fields = ['status', 'status_label', 'active', 'status_updated_at']
 
     def get_assignment_status(self, obj):
-        """Get client's assignment status to a recruiter"""
+        """Get primary assignment status (backward-compatible)"""
         try:
-            assignment = obj.assignment
+            assignment = obj.assignments.filter(status='active').order_by('-assigned_at').first()
             return {
                 'status': assignment.status,
                 'priority': assignment.priority,
@@ -97,9 +143,9 @@ class ProfileSerializer(serializers.ModelSerializer):
             return None
 
     def get_recruiter_info(self, obj):
-        """Get assigned recruiter information"""
+        """Get primary recruiter info (backward-compatible)"""
         try:
-            assignment = obj.assignment
+            assignment = obj.assignments.filter(status='active').order_by('-assigned_at').first()
             if assignment.recruiter:
                 recruiter = assignment.recruiter
                 return {
@@ -118,6 +164,48 @@ class ProfileSerializer(serializers.ModelSerializer):
         except Exception:
             pass
         return None
+
+    def get_assignment_statuses(self, obj):
+        """Get all assignment statuses for this profile"""
+        try:
+            assignments = obj.assignments.filter(status='active').order_by('-assigned_at')
+            return [
+                {
+                    'status': assignment.status,
+                    'priority': assignment.priority,
+                    'assigned_at': assignment.assigned_at,
+                    'last_activity': assignment.last_activity,
+                    'recruiter_id': str(assignment.recruiter.id) if assignment.recruiter else None
+                }
+                for assignment in assignments
+            ]
+        except Exception:
+            return []
+
+    def get_recruiter_infos(self, obj):
+        """Get all assigned recruiters info"""
+        try:
+            assignments = obj.assignments.filter(status='active').select_related('recruiter').order_by('-assigned_at')
+            recruiters = []
+            for assignment in assignments:
+                if assignment.recruiter:
+                    recruiter = assignment.recruiter
+                    recruiters.append({
+                        'id': str(recruiter.id),
+                        'name': recruiter.name,
+                        'email': recruiter.email,
+                        'employee_id': recruiter.employee_id,
+                        'phone': recruiter.phone,
+                        'department': recruiter.department,
+                        'department_display': recruiter.get_department_display(),
+                        'specialization': recruiter.specialization,
+                        'specialization_display': recruiter.get_specialization_display(),
+                        'status': recruiter.status,
+                        'active': recruiter.active
+                    })
+            return recruiters
+        except Exception:
+            return []
 
     def validate(self, data):
         import re

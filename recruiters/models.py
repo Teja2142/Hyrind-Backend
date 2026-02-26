@@ -38,6 +38,13 @@ class Recruiter(models.Model):
         ('inactive', 'Inactive'),
         ('suspended', 'Suspended'),
     ]
+
+    AVAILABILITY_CHOICES = [
+        ('available', 'Available'),
+        ('absent', 'Absent'),
+        ('on_leave', 'On Leave'),
+        ('busy', 'Fully Occupied'),
+    ]
     
     # Primary Key
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -134,7 +141,13 @@ class Recruiter(models.Model):
         null=True,
         help_text='Admin notes about this recruiter'
     )
-    
+    availability_status = models.CharField(
+        max_length=20,
+        choices=AVAILABILITY_CHOICES,
+        default='available',
+        help_text='Current availability for accepting new clients'
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -154,8 +167,11 @@ class Recruiter(models.Model):
         return f"{self.name} ({self.employee_id})"
     
     def can_accept_more_clients(self):
-        """Check if recruiter can accept more clients"""
-        return self.current_clients_count < self.max_clients
+        """Check if recruiter can accept more clients (capacity + availability)"""
+        return (
+            self.availability_status == 'available'
+            and self.current_clients_count < self.max_clients
+        )
     
     def get_available_slots(self):
         """Get number of available client slots"""
@@ -191,10 +207,18 @@ class Assignment(models.Model):
         ('active', 'Active - In Progress'),
         ('placed', 'Successfully Placed'),
         ('on_hold', 'On Hold'),
+        ('reassigned', 'Reassigned to Another Recruiter'),
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     ]
-    
+
+    ROLE_CHOICES = [
+        ('primary', 'Primary Recruiter'),
+        ('secondary', 'Secondary Recruiter'),
+        ('team_lead', 'Team Lead'),
+        ('backup', 'Backup / Cover'),
+    ]
+
     PRIORITY_CHOICES = [
         ('high', 'High Priority'),
         ('medium', 'Medium Priority'),
@@ -205,10 +229,10 @@ class Assignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     # Core Assignment
-    profile = models.OneToOneField(
+    profile = models.ForeignKey(
         Profile,
         on_delete=models.CASCADE,
-        related_name='assignment',
+        related_name='assignments',
         help_text='Client candidate profile'
     )
     recruiter = models.ForeignKey(
@@ -269,7 +293,26 @@ class Assignment(models.Model):
         null=True,
         help_text='Internal comments (not visible to client)'
     )
-    
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        default='primary',
+        help_text='Recruiter role on this assignment (primary, secondary, team_lead, backup)'
+    )
+    reassigned_from = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reassignments',
+        help_text='Original assignment this was reassigned from'
+    )
+    reassignment_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Reason for reassignment (e.g., recruiter absent, workload rebalancing)'
+    )
+
     # Timestamps
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -280,6 +323,13 @@ class Assignment(models.Model):
         indexes = [
             models.Index(fields=['status', 'priority']),
             models.Index(fields=['assigned_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['profile', 'recruiter'],
+                condition=models.Q(status='active'),
+                name='unique_active_assignment_per_recruiter'
+            )
         ]
     
     def __str__(self):

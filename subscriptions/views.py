@@ -15,7 +15,8 @@ from .serializers import (
     UserSubscriptionCreateSerializer,
     BillingHistorySerializer,
     UserSubscriptionSummarySerializer,
-    AdminUserSubscriptionUpdateSerializer
+    AdminUserSubscriptionUpdateSerializer,
+    AdminAssignAddonSerializer,
 )
 from utils.profile_utils import ProfileResolveMixin
 
@@ -72,9 +73,17 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SubscriptionPlanSerializer
     permission_classes = [permissions.AllowAny]
     
+    def _visible_plans_queryset(self):
+        """Return plans visible to the current request user"""
+        base_queryset = SubscriptionPlan.objects.filter(is_active=True)
+        user = self.request.user
+        if user and user.is_authenticated and hasattr(user, 'profile'):
+            return base_queryset.filter(Q(is_private=False) | Q(allowed_profiles=user.profile))
+        return base_queryset.filter(is_private=False)
+
     def get_queryset(self):
         """Filter plans by type if specified"""
-        queryset = super().get_queryset()
+        queryset = self._visible_plans_queryset()
         plan_type = self.request.query_params.get('type', None)
         if plan_type in ['base', 'addon']:
             queryset = queryset.filter(plan_type=plan_type)
@@ -84,7 +93,7 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
     def base_plan(self, request):
         """Get the mandatory base subscription plan"""
         try:
-            base_plan = SubscriptionPlan.objects.get(plan_type='base', is_mandatory=True, is_active=True)
+            base_plan = self._visible_plans_queryset().get(plan_type='base', is_mandatory=True)
             serializer = self.get_serializer(base_plan)
             return Response(serializer.data)
         except SubscriptionPlan.DoesNotExist:
@@ -96,7 +105,7 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['get'])
     def addons(self, request):
         """Get all available add-on plans"""
-        addons = SubscriptionPlan.objects.filter(plan_type='addon', is_active=True)
+        addons = self._visible_plans_queryset().filter(plan_type='addon')
         serializer = self.get_serializer(addons, many=True)
         return Response(serializer.data)
 
@@ -663,6 +672,83 @@ class AdminUserSubscriptionViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             pass
+
+    @action(detail=False, methods=['post'], url_path='assign-addon')
+    def assign_addon(self, request):
+        """
+        Admin endpoint: assign a specific addon to a single client at a custom price.
+
+        POST /api/subscriptions/admin/subscriptions/assign-addon/
+
+        Body:
+            profile_id         (UUID)     - The target client profile
+            plan_id            (UUID)     - An active addon SubscriptionPlan
+            custom_price       (decimal)  - Price charged to THIS client only
+            billing_cycle      (str)      - monthly / quarterly / annual / one_time
+            admin_notes        (str)      - Internal note (optional)
+            activate_immediately (bool)  - Skip payment; activate right away (default false)
+
+        Behaviour:
+            1. The plan is marked `is_private=True` and the client's profile is added to
+               `plan.allowed_profiles` so it shows ONLY in that client's addon list.
+            2. A UserSubscription is created with the custom price.
+            3. If `activate_immediately=true` a BillingHistory success record is created.
+        """
+        serializer = AdminAssignAddonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        profile = data['_profile']
+        plan = data['_plan']
+
+        # Scope plan to this client only
+        if not plan.is_private:
+            plan.is_private = True
+            plan.save(update_fields=['is_private'])
+        plan.allowed_profiles.add(profile)
+
+        activate_now = data.get('activate_immediately', False)
+        sub_status = 'active' if activate_now else 'pending'
+
+        subscription = UserSubscription.objects.create(
+            profile=profile,
+            plan=plan,
+            price=data['custom_price'],
+            billing_cycle=data.get('billing_cycle', plan.billing_cycle),
+            admin_notes=data.get('admin_notes', ''),
+            status=sub_status,
+            started_at=timezone.now() if activate_now else None,
+        )
+
+        if activate_now:
+            BillingHistory.objects.create(
+                user_subscription=subscription,
+                amount=data['custom_price'],
+                status='success',
+                description=f"Admin-assigned addon activated: {plan.name}",
+            )
+
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=request.user,
+                action='admin_addon_assigned',
+                target=f'UserSubscription:{subscription.id}',
+                metadata={
+                    'profile': str(profile.id),
+                    'profile_email': profile.email,
+                    'plan': plan.name,
+                    'custom_price': str(data['custom_price']),
+                    'activated': activate_now,
+                }
+            )
+        except Exception:
+            pass
+
+        return Response(
+            UserSubscriptionSerializer(subscription).data,
+            status=status.HTTP_201_CREATED,
+        )
     
     @action(detail=False, methods=['get'])
     def analytics(self, request):

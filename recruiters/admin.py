@@ -6,10 +6,19 @@ from django.conf import settings
 
 @admin.register(Recruiter)
 class RecruiterAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'phone', 'active')
-    list_filter = ('active',)
-    search_fields = ('name', 'email')
-    actions = ['activate_recruiters', 'deactivate_recruiters', 'export_selected']
+    list_display = ('name', 'email', 'phone', 'department', 'availability_status', 'active', 'current_clients_count')
+    list_filter = ('active', 'availability_status', 'department', 'status')
+    search_fields = ('name', 'email', 'employee_id')
+    readonly_fields = ('current_clients_count', 'total_placements', 'active_applications', 'created_at', 'updated_at')
+    fieldsets = (
+        ('Basic Info', {'fields': ('user', 'employee_id', 'name', 'email', 'phone')}),
+        ('Employment', {'fields': ('department', 'specialization', 'date_of_joining', 'company_name')}),
+        ('Capacity & Availability', {'fields': ('max_clients', 'current_clients_count', 'availability_status')}),
+        ('Status', {'fields': ('status', 'active', 'verified')}),
+        ('Performance', {'fields': ('total_placements', 'active_applications'), 'classes': ('collapse',)}),
+        ('Notes & Timestamps', {'fields': ('notes', 'created_at', 'updated_at', 'last_login'), 'classes': ('collapse',)}),
+    )
+    actions = ['activate_recruiters', 'deactivate_recruiters', 'mark_absent', 'mark_available', 'export_selected']
 
     def activate_recruiters(self, request, queryset):
         activated = 0
@@ -75,10 +84,28 @@ class RecruiterAdmin(admin.ModelAdmin):
         return response
     export_selected.short_description = 'Export selected recruiters to CSV'
 
+    def mark_absent(self, request, queryset):
+        updated = queryset.update(availability_status='absent')
+        self.message_user(request, f"Marked {updated} recruiters as absent.")
+    mark_absent.short_description = 'Mark selected recruiters as Absent'
+
+    def mark_available(self, request, queryset):
+        updated = queryset.update(availability_status='available')
+        self.message_user(request, f"Marked {updated} recruiters as Available.")
+    mark_available.short_description = 'Mark selected recruiters as Available'
+
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ('profile', 'recruiter', 'assigned_at')
+    list_display = ('profile', 'recruiter', 'role', 'status', 'priority', 'assigned_at')
+    list_filter = ('status', 'role', 'priority', 'assigned_at')
     search_fields = ('profile__first_name', 'profile__last_name', 'profile__email', 'recruiter__name')
+    readonly_fields = ('id', 'assigned_at', 'last_activity', 'updated_at', 'reassigned_from')
+    fieldsets = (
+        ('Assignment', {'fields': ('id', 'profile', 'recruiter', 'role', 'status', 'priority')}),
+        ('Notes', {'fields': ('notes', 'internal_comments')}),
+        ('Reassignment', {'fields': ('reassigned_from', 'reassignment_reason'), 'classes': ('collapse',)}),
+        ('Timestamps', {'fields': ('assigned_at', 'last_activity', 'placement_date', 'updated_at'), 'classes': ('collapse',)}),
+    )
 
 
 @admin.register(RecruiterRegistration)

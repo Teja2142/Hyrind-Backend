@@ -337,9 +337,16 @@ Example Response:
         has_recruiter = self.request.query_params.get('has_recruiter', None)
         if has_recruiter is not None:
             if has_recruiter.lower() in ['true', '1', 'yes']:
-                queryset = queryset.filter(profile__assignment__recruiter__isnull=False)
+                queryset = queryset.filter(
+                    profile__assignments__status='active',
+                    profile__assignments__recruiter__isnull=False
+                ).distinct()
             else:
-                queryset = queryset.filter(profile__assignment__recruiter__isnull=True)
+                # Exclude any profile that has at least one active assignment with a recruiter
+                queryset = queryset.exclude(
+                    profile__assignments__status='active',
+                    profile__assignments__recruiter__isnull=False
+                ).distinct()
         
         # Search by name or email
         search = self.request.query_params.get('search', None)
@@ -505,9 +512,15 @@ class ClientProfileList(generics.ListCreateAPIView):
         has_recruiter = self.request.query_params.get('has_recruiter', None)
         if has_recruiter is not None:
             if has_recruiter.lower() in ['true', '1', 'yes']:
-                queryset = queryset.filter(assignment__recruiter__isnull=False)
+                queryset = queryset.filter(
+                    assignments__status='active',
+                    assignments__recruiter__isnull=False
+                ).distinct()
             else:
-                queryset = queryset.filter(assignment__recruiter__isnull=True)
+                queryset = queryset.exclude(
+                    assignments__status='active',
+                    assignments__recruiter__isnull=False
+                ).distinct()
         
         # Filter by visa status
         visa_status = self.request.query_params.get('visa_status', None)

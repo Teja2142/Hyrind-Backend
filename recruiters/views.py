@@ -20,6 +20,7 @@ from .serializers import (
     RecruiterListSerializer,
     RecruiterAdminUpdateSerializer,
     AssignmentSerializer,
+    ReassignClientSerializer,
     RecruiterRegistrationFormSerializer,
     RecruiterRegistrationFormListSerializer
 )
@@ -668,6 +669,32 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
     def post(self, request, *args, **kwargs):
         recruiter_id = request.data.get('recruiter_id')
         profile = self.get_profile()
+
+        if not recruiter_id:
+            return Response(
+                {'detail': 'recruiter_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            recruiter = Recruiter.objects.get(id=recruiter_id)
+        except Recruiter.DoesNotExist:
+            return Response(
+                {'detail': 'Recruiter not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not recruiter.active or recruiter.status != 'active':
+            return Response(
+                {'detail': 'Recruiter is not active.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not recruiter.can_accept_more_clients():
+            return Response(
+                {'detail': 'Recruiter has reached maximum client capacity.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Check if onboarding exists and is completed
         try:
@@ -682,13 +709,24 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
             # For admin-initiated assignments, we'll allow the assignment without onboarding
             pass
         
-        assignment, _ = Assignment.objects.get_or_create(profile=profile)
-        assignment.recruiter_id = recruiter_id
-        assignment.save()
+        if Assignment.objects.filter(profile=profile, recruiter=recruiter, status='active').exists():
+            return Response(
+                {'detail': 'Profile is already actively assigned to this recruiter.'},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        had_active_assignments = Assignment.objects.filter(profile=profile, status='active').exists()
+
+        data = request.data.copy()
+        data['profile_id'] = str(profile.id)
+        data['recruiter_id'] = str(recruiter.id)
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        assignment = serializer.save(assigned_by=request.user)
         
         # Update profile status to "assigned" after recruiter assignment
         try:
-            if profile.registration_status == 'ready_to_assign':
+            if not had_active_assignments and profile.registration_status == 'ready_to_assign':
                 profile.update_status('assigned', notes=f'Assigned to recruiter: {assignment.recruiter.name if assignment.recruiter else "N/A"}')
         except Exception:
             pass
@@ -705,8 +743,159 @@ class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
         except Exception:
             pass
         
-        serializer = self.get_serializer(assignment)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        response_serializer = self.get_serializer(assignment)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ============================================================================
+# ASSIGNMENT LIST / DETAIL / REASSIGN / AVAILABILITY ENDPOINTS
+# ============================================================================
+
+class AssignmentListView(generics.ListAPIView):
+    """
+    Admin endpoint – list all client-recruiter assignments.
+
+    GET /api/recruiters/assignments/
+
+    Query Parameters:
+        - profile_id    : filter by client profile UUID
+        - recruiter_id  : filter by recruiter UUID
+        - status        : active | placed | on_hold | reassigned | completed | cancelled
+        - role          : primary | secondary | team_lead | backup
+    """
+    serializer_class = AssignmentSerializer
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        operation_summary='List all assignments (admin)',
+        operation_description='Returns all client-recruiter assignments with optional filters.',
+        manual_parameters=[
+            openapi.Parameter('profile_id', openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter('recruiter_id', openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter('status', openapi.IN_QUERY, type=openapi.TYPE_STRING),
+            openapi.Parameter('role', openapi.IN_QUERY, type=openapi.TYPE_STRING),
+        ],
+        responses={200: AssignmentSerializer(many=True)},
+        tags=['Assignments'],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        qs = Assignment.objects.select_related('profile', 'recruiter').order_by('-assigned_at')
+        p = self.request.query_params
+        if p.get('profile_id'):
+            qs = qs.filter(profile__id=p['profile_id'])
+        if p.get('recruiter_id'):
+            qs = qs.filter(recruiter__id=p['recruiter_id'])
+        if p.get('status'):
+            qs = qs.filter(status=p['status'])
+        if p.get('role'):
+            qs = qs.filter(role=p['role'])
+        return qs
+
+
+class ReassignClientView(generics.GenericAPIView):
+    """
+    Admin endpoint – reassign a client from an existing assignment to a new recruiter.
+
+    POST /api/recruiters/assignments/<uuid:id>/reassign/
+
+    Use this when a recruiter is absent, on leave, or workload needs rebalancing.
+
+    Workflow:
+        1. The current active assignment status is changed to 'reassigned'.
+        2. A new Assignment is created for the same client with the new recruiter,
+           linked back to the original via `reassigned_from`.
+        3. Profile status and recruiter client counts are updated automatically.
+    """
+    queryset = Assignment.objects.all()
+    lookup_field = 'id'
+    serializer_class = ReassignClientSerializer
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        operation_summary='Reassign client to another recruiter (admin)',
+        request_body=ReassignClientSerializer,
+        responses={201: AssignmentSerializer, 400: 'Bad Request', 404: 'Not Found'},
+        tags=['Assignments'],
+    )
+    def post(self, request, id=None, *args, **kwargs):
+        try:
+            original = Assignment.objects.get(id=id)
+        except Assignment.DoesNotExist:
+            return Response({'detail': 'Assignment not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if original.status not in ('active', 'on_hold'):
+            return Response(
+                {'detail': f"Cannot reassign an assignment with status '{original.status}'. "
+                           f"Only 'active' or 'on_hold' assignments can be reassigned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ReassignClientSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        new_recruiter = Recruiter.objects.get(id=data['new_recruiter_id'])
+
+        if new_recruiter == original.recruiter:
+            return Response(
+                {'detail': 'The new recruiter is the same as the current one. No reassignment needed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Mark original assignment as reassigned
+        original.status = 'reassigned'
+        original.reassignment_reason = data['reason']
+        original.save(update_fields=['status', 'reassignment_reason'])
+
+        # Create the new assignment
+        new_assignment = Assignment.objects.create(
+            profile=original.profile,
+            recruiter=new_recruiter,
+            status='active',
+            priority=data.get('priority') or original.priority,
+            role=data.get('role', 'primary'),
+            notes=original.notes,
+            internal_comments=original.internal_comments,
+            assigned_by=request.user,
+            reassigned_from=original,
+            reassignment_reason=data['reason'],
+        )
+
+        # Update profile status
+        try:
+            profile = original.profile
+            profile.update_status(
+                'assigned',
+                notes=f'Reassigned to recruiter: {new_recruiter.name}. Reason: {data["reason"]}'
+            )
+        except Exception:
+            pass
+
+        # Audit log
+        try:
+            from audit.utils import log_action
+            log_action(
+                actor=request.user,
+                action='client_reassigned',
+                target=f'Assignment:{new_assignment.id}',
+                metadata={
+                    'profile': str(original.profile.id),
+                    'from_recruiter': str(original.recruiter.id) if original.recruiter else None,
+                    'to_recruiter': str(new_recruiter.id),
+                    'reason': data['reason'],
+                    'original_assignment': str(original.id),
+                }
+            )
+        except Exception:
+            pass
+
+        return Response(
+            AssignmentSerializer(new_assignment).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ============================================================================

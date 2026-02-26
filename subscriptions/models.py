@@ -39,6 +39,16 @@ class SubscriptionPlan(models.Model):
         default='monthly'
     )
     features = models.JSONField(default=list, blank=True, help_text="List of features included in this plan")
+    is_private = models.BooleanField(
+        default=False,
+        help_text="If true, this plan is only visible to explicitly allowed profiles"
+    )
+    allowed_profiles = models.ManyToManyField(
+        Profile,
+        blank=True,
+        related_name='private_addon_plans',
+        help_text="Profiles that can view this private plan"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

@@ -7,8 +7,8 @@ from .models import Subscription, SubscriptionPlan, UserSubscription, BillingHis
 @admin.register(SubscriptionPlan)
 class SubscriptionPlanAdmin(admin.ModelAdmin):
     """Admin interface for managing subscription plans"""
-    list_display = ('name', 'plan_type_badge', 'base_price_display', 'billing_cycle', 'is_mandatory', 'is_active_badge', 'subscriber_count', 'created_at')
-    list_filter = ('plan_type', 'is_active', 'is_mandatory', 'billing_cycle')
+    list_display = ('name', 'plan_type_badge', 'base_price_display', 'billing_cycle', 'is_mandatory', 'is_private', 'is_active_badge', 'subscriber_count', 'created_at')
+    list_filter = ('plan_type', 'is_active', 'is_mandatory', 'is_private', 'billing_cycle')
     search_fields = ('name', 'description')
     readonly_fields = ('id', 'created_at', 'updated_at', 'subscriber_count')
     fieldsets = (
@@ -19,7 +19,7 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
             'fields': ('base_price', 'billing_cycle')
         }),
         ('Settings', {
-            'fields': ('is_active', 'is_mandatory', 'features')
+            'fields': ('is_active', 'is_mandatory', 'is_private', 'allowed_profiles', 'features')
         }),
         ('Metadata', {
             'fields': ('subscriber_count', 'created_at', 'updated_at'),
