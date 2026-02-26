@@ -3,7 +3,7 @@ Views and API endpoints for role suggestions
 Ultra-simple API where admins type role titles directly
 """
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.contrib.auth.models import User
@@ -306,3 +306,57 @@ class RoleSuggestionViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({
             'categories': sorted(categories)
         })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def user_role_suggestions(request, profile_id):
+    """
+    GET /api/users/profiles/{profile_id}/role-suggestions/ - Get role suggestions for specific profile (Admin)
+    
+    Admin endpoint to fetch all role suggestions for any user by their profile UUID.
+    
+    Parameters:
+        profile_id (UUID): Profile UUID of the user
+    
+    Returns:
+        - user: User details (id, username, email, profile_id)
+        - summary: Statistics (total, selected, unselected, submitted, pending)
+        - suggestions: List of all role suggestions for this user
+    
+    Access: Admin only
+    """
+    try:
+        from users.models import Profile
+        profile = Profile.objects.select_related('user').get(id=profile_id)
+        user = profile.user
+    except Profile.DoesNotExist:
+        return Response(
+            {'error': 'Profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    suggestions = UserRoleSuggestion.objects.filter(user=user).select_related('added_by')
+    serializer = RoleSuggestionSerializer(suggestions, many=True)
+    
+    # Summary stats
+    total_count = suggestions.count()
+    selected_count = suggestions.filter(is_selected=True).count()
+    submitted_count = suggestions.filter(submitted_at__isnull=False).count()
+    
+    return Response({
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'profile_id': str(profile.id)
+        },
+        'summary': {
+            'total': total_count,
+            'selected': selected_count,
+            'unselected': total_count - selected_count,
+            'submitted': submitted_count,
+            'pending': total_count - submitted_count
+        },
+        'suggestions': serializer.data
+    }, status=status.HTTP_200_OK)

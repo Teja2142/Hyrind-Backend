@@ -1,6 +1,7 @@
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.decorators import api_view, permission_classes, parser_classes
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -1781,346 +1782,6 @@ class CandidateMarkPlacedView(generics.GenericAPIView):
 # ============================================================================
 # PASSWORD RESET VIEWS
 # ============================================================================
-
-
-class CandidateApproveView(generics.GenericAPIView):
-    """
-    Admin endpoint to approve a candidate registration.
-    Changes status from 'open' to 'approved' - candidate can now proceed to payment.
-    """
-    permission_classes = [IsAdminUser]
-    queryset = Profile.objects.all()
-    lookup_field = 'id'
-    serializer_class = ProfileSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Approve candidate registration (admin only)",
-        operation_summary="Approve Candidate",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'notes': openapi.Schema(type=openapi.TYPE_STRING, description='Admin approval notes (optional)')
-            }
-        ),
-        responses={
-            200: ProfileSerializer,
-            400: "Invalid status transition",
-            404: "Profile not found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Admin']
-    )
-    def patch(self, request, id=None, *args, **kwargs):
-        """Approve a candidate registration"""
-        try:
-            profile = Profile.objects.get(id=id)
-            notes = request.data.get('notes', '')
-            
-            # Validate status transition
-            if profile.registration_status not in ['open', 'rejected']:
-                return Response({
-                    'success': False,
-                    'message': f'Cannot approve candidate with status: {profile.get_registration_status_display()}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Update status to approved
-            profile.update_status('approved', notes=notes or 'Registration approved by admin')
-            
-            # Send approval email to candidate
-            try:
-                self._send_approval_email(profile)
-            except Exception:
-                pass
-            
-            serializer = self.get_serializer(profile)
-            return Response({
-                'success': True,
-                'message': 'Candidate approved successfully. They can now proceed to payment.',
-                'data': serializer.data
-            }, status=status.HTTP_200_OK)
-        
-        except Profile.DoesNotExist:
-            return Response(
-                {'detail': 'Profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    def _send_approval_email(self, profile):
-        """Send approval notification email to candidate"""
-        from utils.email_service import EmailService
-        
-        subject = f"✅ Application Approved - Next Steps"
-        text_content = f"""
-Dear {profile.first_name},
-
-Your registration has been approved! 
-
-Next Steps:
-1. Complete payment to activate your account
-2. Once payment is confirmed, you'll be assigned to a recruiter
-3. Your recruiter will guide you through the job placement process
-
-Please log in to your dashboard to proceed with payment.
-
-Best regards,
-Hyrind Team
-        """
-        
-        html_content = f"""
-<h2>Application Approved!</h2>
-<p>Dear {profile.first_name},</p>
-<p>Great news! Your registration has been approved.</p>
-<h3>Next Steps:</h3>
-<ol>
-    <li>Complete payment to activate your account</li>
-    <li>Once payment is confirmed, you'll be assigned to a recruiter</li>
-    <li>Your recruiter will guide you through the job placement process</li>
-</ol>
-<p>Please log in to your dashboard to proceed with payment.</p>
-<p>Best regards,<br>Hyrind Team</p>
-        """
-        
-        EmailService.send_email(
-            subject=subject,
-            text_content=text_content,
-            html_content=html_content,
-            to_emails=[profile.email]
-        )
-
-
-class CandidateRejectView(generics.GenericAPIView):
-    """
-    Admin endpoint to reject a candidate registration.
-    Changes status to 'rejected' - candidate will be notified.
-    """
-    permission_classes = [IsAdminUser]
-    queryset = Profile.objects.all()
-    lookup_field = 'id'
-    serializer_class = ProfileSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Reject candidate registration (admin only)",
-        operation_summary="Reject Candidate",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['reason'],
-            properties={
-                'reason': openapi.Schema(type=openapi.TYPE_STRING, description='Reason for rejection')
-            }
-        ),
-        responses={
-            200: ProfileSerializer,
-            400: "Bad Request - Reason required",
-            404: "Profile not found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Admin']
-    )
-    def patch(self, request, id=None, *args, **kwargs):
-        """Reject a candidate registration"""
-        try:
-            profile = Profile.objects.get(id=id)
-            reason = request.data.get('reason', '').strip()
-            
-            if not reason:
-                return Response({
-                    'success': False,
-                    'message': 'Rejection reason is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Update status to rejected
-            profile.update_status('rejected', notes=f'Rejected: {reason}')
-            
-            # Deactivate user account
-            try:
-                profile.user.is_active = False
-                profile.user.save(update_fields=['is_active'])
-                profile.active = False
-                profile.save(update_fields=['active'])
-            except Exception:
-                pass
-            
-            # Send rejection email to candidate
-            try:
-                self._send_rejection_email(profile, reason)
-            except Exception:
-                pass
-            
-            serializer = self.get_serializer(profile)
-            return Response({
-                'success': True,
-                'message': 'Candidate rejected.',
-                'data': serializer.data
-            }, status=status.HTTP_200_OK)
-        
-        except Profile.DoesNotExist:
-            return Response(
-                {'detail': 'Profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    def _send_rejection_email(self, profile, reason):
-        """Send rejection notification email to candidate"""
-        from utils.email_service import EmailService
-        
-        subject = f"Application Status Update"
-        text_content = f"""
-Dear {profile.first_name},
-
-Thank you for your interest in Hyrind's services.
-
-After careful review, we regret to inform you that we cannot proceed with your application at this time.
-
-Reason: {reason}
-
-If you have any questions or would like to discuss this further, please don't hesitate to contact us.
-
-Best regards,
-Hyrind Team
-        """
-        
-        html_content = f"""
-<h2>Application Status Update</h2>
-<p>Dear {profile.first_name},</p>
-<p>Thank you for your interest in Hyrind's services.</p>
-<p>After careful review, we regret to inform you that we cannot proceed with your application at this time.</p>
-<p><strong>Reason:</strong> {reason}</p>
-<p>If you have any questions or would like to discuss this further, please don't hesitate to contact us.</p>
-<p>Best regards,<br>Hyrind Team</p>
-        """
-        
-        EmailService.send_email(
-            subject=subject,
-            text_content=text_content,
-            html_content=html_content,
-            to_emails=[profile.email]
-        )
-
-
-class CandidatePlacedView(generics.GenericAPIView):
-    """
-    Admin/Recruiter endpoint to mark a candidate as placed (job found).
-    Changes status to 'closed' - successful placement completion.
-    """
-    permission_classes = [IsAdminUser]
-    queryset = Profile.objects.all()
-    lookup_field = 'id'
-    serializer_class = ProfileSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Mark candidate as successfully placed (admin/recruiter only)",
-        operation_summary="Mark Candidate Placed",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'company_name': openapi.Schema(type=openapi.TYPE_STRING, description='Company where placed'),
-                'position': openapi.Schema(type=openapi.TYPE_STRING, description='Job position/title'),
-                'notes': openapi.Schema(type=openapi.TYPE_STRING, description='Additional placement notes')
-            }
-        ),
-        responses={
-            200: ProfileSerializer,
-            400: "Invalid status transition",
-            404: "Profile not found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Admin']
-    )
-    def patch(self, request, id=None, *args, **kwargs):
-        """Mark candidate as placed"""
-        try:
-            profile = Profile.objects.get(id=id)
-            company_name = request.data.get('company_name', '').strip()
-            position = request.data.get('position', '').strip()
-            notes = request.data.get('notes', '').strip()
-            
-            # Build placement notes
-            placement_info = []
-            if company_name:
-                placement_info.append(f'Company: {company_name}')
-            if position:
-                placement_info.append(f'Position: {position}')
-            if notes:
-                placement_info.append(f'Notes: {notes}')
-            
-            placement_notes = 'Successfully placed. ' + ' | '.join(placement_info) if placement_info else 'Successfully placed'
-            
-            # Update status to closed
-            profile.update_status('closed', notes=placement_notes)
-            
-            # Update assignment status if exists
-            try:
-                assignment = profile.assignment
-                assignment.status = 'placed'
-                assignment.save(update_fields=['status'])
-            except Exception:
-                pass
-            
-            # Send congratulations email to candidate
-            try:
-                self._send_placement_email(profile, company_name, position)
-            except Exception:
-                pass
-            
-            serializer = self.get_serializer(profile)
-            return Response({
-                'success': True,
-                'message': 'Candidate marked as successfully placed!',
-                'data': serializer.data
-            }, status=status.HTTP_200_OK)
-        
-        except Profile.DoesNotExist:
-            return Response(
-                {'detail': 'Profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    def _send_placement_email(self, profile, company_name='', position=''):
-        """Send congratulations email to placed candidate"""
-        from utils.email_service import EmailService
-        
-        subject = f"🎉 Congratulations on Your Placement!"
-        
-        placement_details = ''
-        if company_name and position:
-            placement_details = f"\n\nCompany: {company_name}\nPosition: {position}"
-        elif company_name:
-            placement_details = f"\n\nCompany: {company_name}"
-        elif position:
-            placement_details = f"\n\nPosition: {position}"
-        
-        text_content = f"""
-Dear {profile.first_name},
-
-Congratulations! We're thrilled to inform you that you've been successfully placed!{placement_details}
-
-This is a significant milestone in your career journey, and we're proud to have been part of your success story.
-
-We wish you all the best in your new role!
-
-Best regards,
-Hyrind Team
-        """
-        
-        html_content = f"""
-<h2>🎉 Congratulations on Your Placement!</h2>
-<p>Dear {profile.first_name},</p>
-<p>Congratulations! We're thrilled to inform you that you've been successfully placed!</p>
-{f'<p><strong>Company:</strong> {company_name}<br>' if company_name else ''}
-{f'<strong>Position:</strong> {position}</p>' if position else ''}
-<p>This is a significant milestone in your career journey, and we're proud to have been part of your success story.</p>
-<p>We wish you all the best in your new role!</p>
-<p>Best regards,<br>Hyrind Team</p>
-        """
-        
-        EmailService.send_email(
-            subject=subject,
-            text_content=text_content,
-            html_content=html_content,
-            to_emails=[profile.email]
-        )
-
-
 # ============================================================================
 # PASSWORD RESET VIEWS
 # ============================================================================
@@ -3006,3 +2667,337 @@ class FormsCompletionStatusView(generics.GenericAPIView):
                 }
             }
         }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# "ME" ENDPOINTS - Simplified Access for Authenticated Users
+# ============================================================================
+
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get my client intake sheet",
+    operation_description="Retrieve client intake sheet for the authenticated user. Returns 404 if not submitted yet.",
+    responses={
+        200: openapi.Response('Success', ClientIntakeSheetSerializer),
+        401: 'Authentication required',
+        404: 'Client intake sheet not found'
+    },
+    tags=["Client Forms - Me"]
+)
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Create or update my client intake sheet",
+    operation_description="Create a new client intake sheet or update existing one for authenticated user.",
+    request_body=ClientIntakeSheetSerializer,
+    responses={
+        200: openapi.Response('Updated', ClientIntakeSheetSerializer),
+        201: openapi.Response('Created', ClientIntakeSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required'
+    },
+    tags=["Client Forms - Me"]
+)
+@swagger_auto_schema(
+    method='patch',
+    operation_summary="Update my client intake sheet",
+    operation_description="Partially update client intake sheet for authenticated user.",
+    request_body=ClientIntakeSheetSerializer,
+    responses={
+        200: openapi.Response('Updated', ClientIntakeSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required',
+        403: 'Form is locked',
+        404: 'Client intake sheet not found'
+    },
+    tags=["Client Forms - Me"]
+)
+@api_view(['GET', 'POST', 'PATCH'])
+@permission_classes([permissions.IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def my_client_intake_sheet(request):
+    """
+    GET/POST/PATCH /api/users/me/client-intake/ - Manage my client intake sheet
+    
+    Simplified endpoint for authenticated users to access their own intake form
+    without needing to know the form UUID.
+    
+    GET: Retrieve my intake sheet
+    POST: Create or update my intake sheet
+    PATCH: Update my intake sheet (partial)
+    """
+    try:
+        profile = Profile.objects.get(user=request.user)
+    except Profile.DoesNotExist:
+        return Response(
+            {'error': 'Profile not found. Please complete your registration first.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # GET - Retrieve intake sheet
+    if request.method == 'GET':
+        try:
+            intake_sheet = ClientIntakeSheet.objects.get(profile=profile)
+            serializer = ClientIntakeSheetSerializer(intake_sheet)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ClientIntakeSheet.DoesNotExist:
+            return Response(
+                {'error': 'Client intake sheet not found. Please submit one first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    # POST - Create or update intake sheet
+    elif request.method == 'POST':
+        try:
+            # Try to get existing
+            intake_sheet = ClientIntakeSheet.objects.get(profile=profile)
+            # Update existing
+            serializer = ClientIntakeSheetSerializer(intake_sheet, data=request.data, partial=False)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Client intake sheet updated successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        except ClientIntakeSheet.DoesNotExist:
+            # Create new
+            serializer = ClientIntakeSheetSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(profile=profile)
+            return Response({
+                'success': True,
+                'message': 'Client intake sheet created successfully',
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+    
+    # PATCH - Partial update
+    elif request.method == 'PATCH':
+        try:
+            intake_sheet = ClientIntakeSheet.objects.get(profile=profile)
+            
+            # Check if form is editable
+            if not intake_sheet.is_editable:
+                return Response(
+                    {'error': 'This form is locked and cannot be edited.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            serializer = ClientIntakeSheetSerializer(intake_sheet, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Client intake sheet updated successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        except ClientIntakeSheet.DoesNotExist:
+            return Response(
+                {'error': 'Client intake sheet not found. Use POST to create one.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get my credential sheet",
+    operation_description="Retrieve credential sheet for the authenticated user. Returns 404 if not submitted yet.",
+    responses={
+        200: openapi.Response('Success', CredentialSheetSerializer),
+        401: 'Authentication required',
+        404: 'Credential sheet not found'
+    },
+    tags=["Client Forms - Me"]
+)
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Create or update my credential sheet",
+    operation_description="Create a new credential sheet or update existing one for authenticated user.",
+    request_body=CredentialSheetSerializer,
+    responses={
+        200: openapi.Response('Updated', CredentialSheetSerializer),
+        201: openapi.Response('Created', CredentialSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required'
+    },
+    tags=["Client Forms - Me"]
+)
+@swagger_auto_schema(
+    method='patch',
+    operation_summary="Update my credential sheet",
+    operation_description="Partially update credential sheet for authenticated user.",
+    request_body=CredentialSheetSerializer,
+    responses={
+        200: openapi.Response('Updated', CredentialSheetSerializer),
+        400: 'Bad request',
+        401: 'Authentication required',
+        403: 'Form is locked',
+        404: 'Credential sheet not found'
+    },
+    tags=["Client Forms - Me"]
+)
+@api_view(['GET', 'POST', 'PATCH'])
+@permission_classes([permissions.IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def my_credential_sheet(request):
+    """
+    GET/POST/PATCH /api/users/me/credential-sheet/ - Manage my credential sheet
+    
+    Simplified endpoint for authenticated users to access their own credential form
+    without needing to know the form UUID.
+    
+    GET: Retrieve my credential sheet
+    POST: Create or update my credential sheet
+    PATCH: Update my credential sheet (partial)
+    """
+    try:
+        profile = Profile.objects.get(user=request.user)
+    except Profile.DoesNotExist:
+        return Response(
+            {'error': 'Profile not found. Please complete your registration first.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # GET - Retrieve credential sheet
+    if request.method == 'GET':
+        try:
+            credential_sheet = CredentialSheet.objects.get(profile=profile)
+            serializer = CredentialSheetSerializer(credential_sheet)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except CredentialSheet.DoesNotExist:
+            return Response(
+                {'error': 'Credential sheet not found. Please submit one first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    # POST - Create or update credential sheet
+    elif request.method == 'POST':
+        try:
+            # Try to get existing
+            credential_sheet = CredentialSheet.objects.get(profile=profile)
+            # Update existing
+            serializer = CredentialSheetSerializer(credential_sheet, data=request.data, partial=False)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Credential sheet updated successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        except CredentialSheet.DoesNotExist:
+            # Create new
+            serializer = CredentialSheetSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(profile=profile)
+            return Response({
+                'success': True,
+                'message': 'Credential sheet created successfully',
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+    
+    # PATCH - Partial update
+    elif request.method == 'PATCH':
+        try:
+            credential_sheet = CredentialSheet.objects.get(profile=profile)
+            
+            # Check if form is editable
+            if not credential_sheet.is_editable:
+                return Response(
+                    {'error': 'This form is locked and cannot be edited.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            serializer = CredentialSheetSerializer(credential_sheet, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Credential sheet updated successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        except CredentialSheet.DoesNotExist:
+            return Response(
+                {'error': 'Credential sheet not found. Use POST to create one.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+# ============================================================================
+# PROFILE-BASED NESTED ENDPOINTS - Admin Access to User Forms
+# ============================================================================
+
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get client intake sheet by profile ID (Admin)",
+    operation_description="Retrieve client intake sheet for any user by their profile ID. Admin only.",
+    responses={
+        200: openapi.Response('Success', ClientIntakeSheetSerializer),
+        401: 'Authentication required',
+        403: 'Admin access required',
+        404: 'Profile or intake sheet not found'
+    },
+    tags=["Client Forms - Admin"]
+)
+@api_view(['GET'])
+@permission_classes([permissions.IsAdminUser])
+def profile_client_intake_sheet(request, profile_id):
+    """
+    GET /api/profiles/{profile_id}/client-intake/ - Get client intake by profile ID
+    
+    Admin endpoint to fetch client intake sheet for any user using their profile ID.
+    """
+    try:
+        profile = Profile.objects.get(id=profile_id)
+    except Profile.DoesNotExist:
+        return Response(
+            {'error': 'Profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        intake_sheet = ClientIntakeSheet.objects.get(profile=profile)
+        serializer = ClientIntakeSheetSerializer(intake_sheet)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    except ClientIntakeSheet.DoesNotExist:
+        return Response(
+            {'error': 'Client intake sheet not found for this profile'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get credential sheet by profile ID (Admin)",
+    operation_description="Retrieve credential sheet for any user by their profile ID. Admin only.",
+    responses={
+        200: openapi.Response('Success', CredentialSheetSerializer),
+        401: 'Authentication required',
+        403: 'Admin access required',
+        404: 'Profile or credential sheet not found'
+    },
+    tags=["Client Forms - Admin"]
+)
+@api_view(['GET'])
+@permission_classes([permissions.IsAdminUser])
+def profile_credential_sheet(request, profile_id):
+    """
+    GET /api/profiles/{profile_id}/credential-sheet/ - Get credential sheet by profile ID
+    
+    Admin endpoint to fetch credential sheet for any user using their profile ID.
+    """
+    try:
+        profile = Profile.objects.get(id=profile_id)
+    except Profile.DoesNotExist:
+        return Response(
+            {'error': 'Profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        credential_sheet = CredentialSheet.objects.get(profile=profile)
+        serializer = CredentialSheetSerializer(credential_sheet)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    except CredentialSheet.DoesNotExist:
+        return Response(
+            {'error': 'Credential sheet not found for this profile'},
+            status=status.HTTP_404_NOT_FOUND
+        )

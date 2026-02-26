@@ -20,7 +20,41 @@ schema_view = get_schema_view(
     openapi.Info(
         title="Hyrind API",
         default_version='v1',
-        description="API documentation for Hyrind Recruitment Platform",
+        description="""
+# Hyrind Recruitment Platform API
+
+Complete API documentation organized by user roles and functionality.
+
+## Authentication
+All protected endpoints require JWT token in Authorization header:
+```
+Authorization: Bearer <access_token>
+```
+
+## User Roles
+- **Public**: No authentication required (registration, login, contact forms)
+- **Client**: Job seekers/candidates (profile management, forms, job applications)
+- **Recruiter**: Recruiters managing candidates (dashboard, assignments)
+- **Admin**: Platform administrators (user management, approvals, system config)
+
+## API Organization
+- **Authentication**: Login, logout, token management
+- **Users**: Client/candidate management and profiles
+- **Recruiters**: Recruiter-specific endpoints
+- **Jobs**: Job postings and role suggestions
+- **Payments**: Payment processing and invoices
+- **Subscriptions**: Subscription plans and billing
+- **Onboarding**: Workflow management
+
+## Base URL
+Development: `http://localhost:8000`
+Production: Configure in environment
+
+## Support
+Contact: hyrind.operations@gmail.com
+        """,
+        contact=openapi.Contact(email="hyrind.operations@gmail.com"),
+        license=openapi.License(name="Proprietary"),
     ),
     public=True,
     permission_classes=(permissions.AllowAny,),

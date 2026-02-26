@@ -49,34 +49,42 @@
 
 ### 📚 Complete API Documentation
 
-**NEW!** Comprehensive API documentation covering all 103 endpoints:
+**NEW!** Comprehensive API documentation with all endpoints organized by role and purpose:
 
-- **[📖 Full API Documentation](./API_DOCUMENTATION.md)** - Complete guide with examples for all endpoints
-- **[⚡ Quick Reference Guide](./API_QUICK_REFERENCE.md)** - Quick lookup table for all APIs
-- **[📋 Complete Endpoint List](./API_COMPLETE_ENDPOINT_LIST.md)** - All 103 endpoints organized by module
-- **[🔄 Status Workflow Guide](./CANDIDATE_STATUS_WORKFLOW.md)** - Candidate lifecycle management
+📖 **[Complete API Endpoint Reference](./API_ENDPOINTS_COMPLETE.md)** - Full documentation with:
+- All 70+ endpoints organized by role (Public, Client, Recruiter, Admin)
+- Request/response examples for every endpoint
+- Authentication requirements clearly marked
+- ID parameter reference (UUID vs integer)
+- Quick start examples for common workflows
+- Response status codes and error handling
 
-These documents cover **103 API endpoints** across all modules:
-- ✅ **Authentication** - Client, Admin, and Recruiter login (3 endpoints)
-- ✅ **User Management** - Registration, profiles, password management (28 endpoints)
-- ✅ **Subscription Management** - Plans, subscriptions, billing, analytics (15 endpoints)
-- ✅ **Client Forms** - Intake sheets, credentials, completion status (7 endpoints)
-- ✅ **Admin APIs** - Candidate management, approvals, analytics (10 endpoints)
-- ✅ **Recruiter System** - Registration, dashboard, assignments (13 endpoints)
-- ✅ **Payment Processing** - Razorpay integration, order creation, verification (4 endpoints)
-- ✅ **Job Management** - Job postings, applications (5 endpoints)
-- ✅ **Onboarding** - Workflow tracking, progress updates (4 endpoints)
-- ✅ **Webhooks** - Payment notifications (2 endpoints)
-- ✅ **Public Endpoints** - Contact and interest forms (2 endpoints)
+**Quick Links:**
+- [📖 Full API Documentation](./API_DOCUMENTATION.md) - In-depth guide with examples
+- [⚡ Quick Reference](./API_QUICK_REFERENCE.md) - Quick lookup table
+- [🔄 Status Workflow](./CANDIDATE_STATUS_WORKFLOW.md) - Candidate lifecycle
+- [🔐 Authentication Guide](./help_docs/EMAIL_SETUP.md) - Setup and configuration
 
-Each endpoint includes:
-- Request/response examples with all fields
-- Query parameters and filtering options
-- Permission requirements
-- Error handling and status codes
-- Complete workflow descriptions
+**Interactive Documentation:**
+- **Swagger UI**: http://localhost:8000/swagger/ (Try endpoints live)
+- **ReDoc**: http://localhost:8000/redoc/ (Clean, readable docs)
+- **Admin Panel**: http://localhost:8000/admin/ (Backend management)
 
----
+**API Coverage by Module:**
+- ✅ **Authentication** (4 endpoints) - Client, Admin, Recruiter login
+- ✅ **Users & Profiles** (15 endpoints) - Registration, profile management
+- ✅ **Client Forms** (8 endpoints) - Intake sheets, credentials
+- ✅ **Admin Management** (10 endpoints) - Candidate approvals, status changes
+- ✅ **Recruiters** (12 endpoints) - Recruiter management & dashboard
+- ✅ **Jobs** (5 endpoints) - Job postings & CRUD
+- ✅ **Role Suggestions** (8 endpoints) - AI-powered role matching
+- ✅ **Payments** (6 endpoints) - Razorpay integration
+- ✅ **Invoices** (5 endpoints) - Invoice management
+- ✅ **Subscriptions** (12 endpoints) - Plans & billing
+- ✅ **Onboarding** (4 endpoints) - Workflow tracking
+- ✅ **Public** (3 endpoints) - Contact, interest forms
+
+**Total: 92 API Endpoints** across all modules
 
 ---
 
@@ -735,7 +743,146 @@ curl -X POST http://127.0.0.1:8000/api/token/refresh/ \
 
 ---
 
-## 👥 Recruiter System
+## � Complete API Endpoints by Role
+
+> **📖 For full documentation with examples, see [API_ENDPOINTS_COMPLETE.md](./API_ENDPOINTS_COMPLETE.md)**
+
+### 🌍 Public Endpoints (No Auth Required)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/users/register/` | Register new candidate |
+| `POST` | `/api/users/login/` | Client/Candidate login |
+| `POST` | `/api/users/interest/` | Submit interest form |
+| `POST` | `/api/users/contact/` | Contact form submission |
+| `POST` | `/api/users/password-reset/request/` | Request password reset |
+| `POST` | `/api/users/password-reset/confirm/` | Confirm password reset |
+| `GET` | `/api/jobs/` | List all job postings |
+| `GET` | `/api/jobs/{id}/` | Get job details |
+
+### 👤 Client/Candidate Endpoints (Auth Required)
+
+| Method | Endpoint | Description | ID Type |
+|--------|----------|-------------|---------|
+| `GET` | `/api/users/me/` | Get my profile | - |
+| `GET/PATCH/DELETE` | `/api/users/profiles/{id}/` | Manage profile | UUID |
+| `GET/POST` | `/api/users/me/client-intake/` | My client intake form | - |
+| `GET/POST` | `/api/users/me/credential-sheet/` | My credential sheet | - |
+| `GET` | `/api/users/forms-completion-status/` | Check form completion | - |
+| `POST` | `/api/users/password-change/` | Change password | - |
+| `GET` | `/api/jobs/suggestions/` | My role suggestions | - |
+| `PATCH` | `/api/jobs/suggestions/{id}/toggle/` | Toggle suggestion selection | Integer |
+| `POST` | `/api/jobs/suggestions/submit/` | Submit selected suggestions | - |
+| `GET` | `/api/payments/` | My payment history | - |
+| `POST` | `/api/payments/razorpay/create-order/` | Create payment order | - |
+| `POST` | `/api/payments/razorpay/verify/` | Verify payment | - |
+| `GET` | `/api/subscriptions/my-subscriptions/` | My subscriptions | - |
+| `GET` | `/api/subscriptions/billing-history/` | My billing history | - |
+| `GET` | `/api/onboarding/` | My onboarding workflow | - |
+| `PATCH` | `/api/onboarding/{id}/` | Update workflow step | Integer |
+
+### 💼 Recruiter Endpoints (Recruiter Auth Required)
+
+| Method | Endpoint | Description | Access |
+|--------|----------|-------------|--------|
+| `POST` | `/api/recruiters/register/` | Register as recruiter | Public |
+| `POST` | `/api/recruiters/login/` | Recruiter login | Public |
+| `GET` | `/api/recruiters/me/` | Get my recruiter profile | Recruiter |
+| `PATCH` | `/api/recruiters/me/` | Update my profile | Recruiter |
+| `GET` | `/api/recruiters/dashboard/` | Recruiter dashboard with stats | Recruiter |
+| `POST` | `/api/jobs/` | Create job posting | Recruiter |
+| `PATCH` | `/api/jobs/{id}/` | Update job posting | Recruiter |
+| `DELETE` | `/api/jobs/{id}/` | Delete job posting | Recruiter |
+
+**Recruiter Web Portal (HTML):**
+- `GET/POST` `/recruiter-registration/` - Registration form
+- `GET/POST` `/recruiter-registration/login/` - Login page
+- `GET` `/recruiter-registration/dashboard/` - Dashboard
+- `GET/POST` `/recruiter-registration/profile/` - Profile management
+- `GET/POST` `/recruiter-registration/complete-profile/` - Complete profile
+
+### 🔧 Admin Endpoints (Admin Auth Required)
+
+#### User Management
+| Method | Endpoint | Description | ID Type |
+|--------|----------|-------------|---------|
+| `GET` | `/api/users/` | List all users | - |
+| `GET` | `/api/users/clients/` | List only clients | - |
+| `GET` | `/api/users/profiles/` | List all profiles | - |
+| `GET` | `/api/users/clients/profiles/` | List client profiles | - |
+| `GET` | `/api/users/profiles/{profile_id}/client-intake/` | Get intake by profile | UUID |
+| `GET` | `/api/users/profiles/{profile_id}/credential-sheet/` | Get credentials by profile | UUID |
+| `GET` | `/api/users/profiles/{profile_id}/role-suggestions/` | Get role suggestions | UUID |
+
+#### Candidate Status Management
+| Method | Endpoint | Description | Status Change |
+|--------|----------|-------------|---------------|
+| `POST` | `/api/users/admin/candidates/{id}/activate/` | Activate candidate | open → approved |
+| `POST` | `/api/users/admin/candidates/{id}/deactivate/` | Deactivate candidate | any → rejected |
+| `POST` | `/api/users/admin/candidates/{id}/placed/` | Mark as placed | assigned → closed |
+
+#### Recruiter Management
+| Method | Endpoint | Description | ID Type |
+|--------|----------|-------------|---------|
+| `GET` | `/api/recruiters/` | List all recruiters | - |
+| `GET` | `/api/recruiters/{id}/` | Get recruiter details | UUID |
+| `PATCH` | `/api/recruiters/{id}/` | Update recruiter | UUID |
+| `POST` | `/api/recruiters/{id}/activate/` | Activate recruiter | UUID |
+| `POST` | `/api/recruiters/{id}/deactivate/` | Deactivate recruiter | UUID |
+| `POST` | `/api/recruiters/assign/` | Assign candidate to recruiter | - |
+
+#### Admin Profile
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/users/admin/profile/` | Get admin profile |
+| `POST` | `/api/users/admin/register/` | Register new admin |
+| `POST` | `/api/users/admin/password/` | Change admin password |
+
+#### Subscription & Payment Management
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/subscriptions/admin/subscriptions/` | All subscriptions |
+| `GET` | `/api/subscriptions/admin/billing-history/` | All billing records |
+| `POST` | `/api/subscriptions/plans/` | Create subscription plan |
+| `GET` | `/api/payments/invoices/` | All invoices |
+| `POST` | `/api/payments/invoices/` | Create invoice |
+
+#### Role Suggestions Management
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/jobs/suggestions/bulk_create/` | Bulk create suggestions for user |
+
+### 📊 Summary by Module
+
+| Module | Endpoints | Description |
+|--------|-----------|-------------|
+| **Authentication** | 4 | Login for clients, admins, recruiters + token refresh |
+| **Users & Profiles** | 15 | Registration, profile CRUD, password management |
+| **Client Forms** | 8 | Intake sheets, credentials, completion status |
+| **Admin Management** | 10 | Candidate approvals, status changes, analytics |
+| **Recruiters** | 12 | Registration, dashboard, assignments, portal |
+| **Jobs** | 5 | Job postings CRUD, public listings |
+| **Role Suggestions** | 8 | AI-powered role matching for candidates |
+| **Payments** | 6 | Razorpay integration, orders, verification |
+| **Invoices** | 5 | Invoice management and tracking |
+| **Subscriptions** | 12 | Plans, user subscriptions, billing history |
+| **Onboarding** | 4 | Workflow tracking, progress updates |
+| **Public** | 3 | Contact and interest forms |
+| **Total** | **92** | Complete API coverage |
+
+### 🔑 ID Parameter Reference
+
+| Parameter | Type | Usage | Example |
+|-----------|------|-------|---------|
+| `id` | UUID | Profile ID (users, candidates, recruiters) | `550e8400-e29b-41d4-a716-446655440000` |
+| `profile_id` | UUID | Explicitly profile-scoped operations | `550e8400-e29b-41d4-a716-446655440000` |
+| `pk` | Integer | Auto-increment IDs (jobs, onboarding) | `123` |
+
+**Note:** All user/candidate operations consistently use UUID-based profile IDs for security.
+
+---
+
+## �👥 Recruiter System
 
 ### Overview
 Internal IT recruitment staff management system with two-phase onboarding and client assignment tracking.

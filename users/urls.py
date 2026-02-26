@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 from .views import LoginView
+# Import role suggestions admin view
+from jobs.recommendation_views import user_role_suggestions
 
 urlpatterns = [
     # ============================================================================
@@ -12,6 +14,9 @@ urlpatterns = [
     path('profiles/', views.ProfileList.as_view(), name='profile-list'),
     # Get/Update/Delete specific user profile
     path('profiles/<uuid:id>/', views.ProfileRetrieveUpdateDestroy.as_view(), name='profile-detail'),
+    # Profile-based nested endpoints (Admin only)
+    path('profiles/<uuid:profile_id>/client-intake/', views.profile_client_intake_sheet, name='profile-client-intake'),
+    path('profiles/<uuid:profile_id>/credential-sheet/', views.profile_credential_sheet, name='profile-credential-sheet'),
     
     # ============================================================================
     # CLIENT ENDPOINTS (Client-Specific Filtered Views)
@@ -20,8 +25,6 @@ urlpatterns = [
     path('clients/', views.ClientListView.as_view(), name='client-list'),
     # List ONLY client profiles with detailed information - excludes recruiters
     path('clients/profiles/', views.ClientProfileList.as_view(), name='client-profile-list'),
-    # Get/Update/Delete specific client profile (same as users/profiles/<id>/)
-    path('clients/profiles/<uuid:id>/', views.ProfileRetrieveUpdateDestroy.as_view(), name='client-profile-detail'),
     
     # ============================================================================
     # PUBLIC ENDPOINTS (No Authentication Required)
@@ -42,13 +45,19 @@ urlpatterns = [
     path('me/', views.CurrentUserProfileView.as_view(), name='current-user-profile'),
     
     # ============================================================================
+    # "ME" ENDPOINTS - Simplified Access for Authenticated Users
+    # ============================================================================
+    # My client intake sheet - No UUID needed
+    path('me/client-intake/', views.my_client_intake_sheet, name='my-client-intake'),
+    # My credential sheet - No UUID needed
+    path('me/credential-sheet/', views.my_credential_sheet, name='my-credential-sheet'),
+    
+    # ============================================================================
     # PASSWORD MANAGEMENT ENDPOINTS
     # ============================================================================
     # Request password reset (Forgot Password on login page)
     path('password-reset/request/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
     # Verify token from email link (GET) or confirm password reset (POST)
-    path('password-reset/verify', views.PasswordResetConfirmView.as_view(), name='password-reset-verify'),
-    # Confirm password reset with token from email (legacy endpoint)
     path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     # Change password (Dashboard settings - requires authentication)
     path('password-change/', views.PasswordChangeView.as_view(), name='password-change'),
@@ -74,7 +83,7 @@ urlpatterns = [
     path('admin/candidates/<uuid:id>/placed/', views.CandidateMarkPlacedView.as_view(), name='candidate-placed'),
     
     # ============================================================================
-    # CLIENT INTAKE AND CREDENTIAL FORMS
+    # CLIENT INTAKE AND CREDENTIAL FORMS (Legacy UUID-based endpoints)
     # ============================================================================
     # Client intake sheet - Create new or get existing
     path('client-intake/', views.ClientIntakeSheetCreateView.as_view(), name='client-intake-create'),
@@ -86,4 +95,10 @@ urlpatterns = [
     path('credential-sheet/<uuid:id>/', views.CredentialSheetRetrieveUpdateView.as_view(), name='credential-sheet-detail'),
     # Check form completion status
     path('forms-completion-status/', views.FormsCompletionStatusView.as_view(), name='forms-completion-status'),
+    
+    # ============================================================================
+    # USER ROLE SUGGESTIONS (Admin Access)
+    # ============================================================================
+    # Get role suggestions for specific profile (Admin only)
+    path('profiles/<uuid:profile_id>/role-suggestions/', user_role_suggestions, name='profile-role-suggestions'),
 ]
