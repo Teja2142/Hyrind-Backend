@@ -1,10 +1,6 @@
 from django.db import models
-from users.models import Profile
-
-from django.db import models
-
-from users.models import Profile
 from django.db.models import JSONField
+from users.models import Profile
 from django.utils import timezone
 import uuid
 

@@ -9,7 +9,7 @@ router.register(r'suggestions', RoleSuggestionViewSet, basename='role-suggestion
 
 urlpatterns = [
     path('', views.JobListCreate.as_view(), name='job-list-create'),
-    path('<int:pk>/', views.JobDetail.as_view(), name='job-detail'),
+    path('<uuid:pk>/', views.JobDetail.as_view(), name='job-detail'),
     
     # Include router URLs for role suggestions
     path('', include(router.urls)),

@@ -3,11 +3,7 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
-try:
-    # Django 3.1+ has JSONField in models
-    from django.db.models import JSONField
-except Exception:
-    from django.contrib.postgres.fields import JSONField
+from django.db.models import JSONField
 import uuid
 
 

@@ -41,7 +41,7 @@ else:
 
 SECRET_KEY = os.environ.get('HYRIND_SECRET_KEY', 'dev-secret-key')
 
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 # Define URL constants to avoid duplication
 API_DOMAIN = 'https://api.hyrind.com'
@@ -62,17 +62,17 @@ else:  # dev, local, or any other environment
     BACKEND_URL = os.environ.get('BACKEND_URL', 'http://127.0.0.1:8000')
 
 # Normalize ALLOWED_HOSTS: list hostnames only (no scheme or port).
-# Keep '*' if you still want to allow all hosts during development, but
-# in production prefer a specific list or use an env var.
+# Django matches against the Host header, so strip http(s):// and ports.
+# Keep '*' only for local development; use a specific list in production.
 ALLOWED_HOSTS = [
     '*',
-    API_DOMAIN,
-    'http://82.29.164.112',
-    API_STAGING_DOMAIN,
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    STAGING_DOMAIN,
-    PRODUCTION_DOMAIN,
+    'api.hyrind.com',
+    '82.29.164.112',
+    'api-staging.hyrind.com',
+    'localhost',
+    '127.0.0.1',
+    'staging.hyrind.com',
+    'hyrind.com',
 ]
 
 INSTALLED_APPS = [
@@ -163,13 +163,6 @@ CSRF_TRUSTED_ORIGINS = [
 # SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'
 
 CORS_ALLOW_HEADERS = [
-    'content-type',
-    'authorization',
-]
-
-# Ensure common headers are allowed in CORS preflight and explicitly allow HTTP methods
-# including PATCH which some browsers require to be present in Access-Control-Allow-Methods
-CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
     'authorization',
@@ -229,7 +222,21 @@ else:
         }
     }
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8},
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
 
 LANGUAGE_CODE = 'en-us'
 

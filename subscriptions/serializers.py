@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from django.db import models
+from django.db.models import Sum
 from decimal import Decimal
 from django.core.validators import MinValueValidator
 from .models import Subscription, SubscriptionPlan, UserSubscription, BillingHistory
@@ -41,7 +41,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     def get_total_paid(self, obj):
         """Get total amount paid for this subscription"""
         total = obj.billing_history.filter(status='success').aggregate(
-            total=models.Sum('amount')
+            total=Sum('amount')
         )['total']
         return float(total) if total else 0.0
 
