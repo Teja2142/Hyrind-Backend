@@ -15,11 +15,11 @@ class DashboardAdmin(admin.AdminSite):
         return custom_urls + urls
 
     def dashboard_view(self, request):
-        from onboarding.models import Onboarding
-        from subscriptions.models import Subscription
+        from candidates.models import Candidate
+        from billing.models import Subscription
         from recruiters.models import Assignment
         from audit.models import AuditLog
-        onboarded = Onboarding.objects.filter(completed=True).count()
+        onboarded = Candidate.objects.count()
         active_subs = Subscription.objects.filter(status='active').count()
         assignments = Assignment.objects.count()
         recent_audit = AuditLog.objects.order_by('-timestamp')[:10]

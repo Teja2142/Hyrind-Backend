@@ -1,96 +1,32 @@
 from django.contrib import admin
-from django.urls import path, include, re_path
-from .admin import admin_site
-from .views import HomeView
-
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
-from users.views import AdminLoginView
-from rest_framework import permissions
-from drf_yasg.views import get_schema_view
-from drf_yasg import openapi
-
+from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-
-schema_view = get_schema_view(
-    openapi.Info(
-        title="Hyrind API",
-        default_version='v1',
-        description="""
-# Hyrind Recruitment Platform API
-
-Complete API documentation organized by user roles and functionality.
-
-## Authentication
-All protected endpoints require JWT token in Authorization header:
-```
-Authorization: Bearer <access_token>
-```
-
-## User Roles
-- **Public**: No authentication required (registration, login, contact forms)
-- **Client**: Job seekers/candidates (profile management, forms, job applications)
-- **Recruiter**: Recruiters managing candidates (dashboard, assignments)
-- **Admin**: Platform administrators (user management, approvals, system config)
-
-## API Organization
-- **Authentication**: Login, logout, token management
-- **Users**: Client/candidate management and profiles
-- **Recruiters**: Recruiter-specific endpoints
-- **Jobs**: Job postings and role suggestions
-- **Payments**: Payment processing and invoices
-- **Subscriptions**: Subscription plans and billing
-- **Onboarding**: Workflow management
-
-## Base URL
-Development: `http://localhost:8000`
-Production: Configure in environment
-
-## Support
-Contact: hyrind.operations@gmail.com
-        """,
-        contact=openapi.Contact(email="hyrind.operations@gmail.com"),
-        license=openapi.License(name="Proprietary"),
-    ),
-    public=True,
-    permission_classes=(permissions.AllowAny,),
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
 )
+from .admin import admin_site
 
 urlpatterns = [
-    # Homepage
-    path('', HomeView.as_view(), name='home'),
-    
-    # Admin
+    # ── Django admin ──────────────────────────────────────────────────────
     path('admin/', admin_site.urls),
-    # Explicit admin login route (helps some tooling and direct links)
-    path('admin/login/', admin_site.login, name='admin_login'),
-    
-    # API endpoints
-    path('api/users/', include('users.urls')),
-    path('api/jobs/', include('jobs.urls')),
-    path('api/payments/', include('payments.urls')),
-    path('api/onboarding/', include('onboarding.urls')),
-    path('api/subscriptions/', include('subscriptions.urls')),
-    path('api/recruiters/', include('recruiters.urls')),
-    # Web (template) pages for recruiter registration and profile
-    path('recruiter-registration/', include('recruiters.web_urls')),
-    
-    # Authentication
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    # Admin API login (returns JWT) for frontend to authenticate admin actions
-    path('api/admin/login/', AdminLoginView.as_view(), name='admin-api-login'),
-    
-    # API Documentation
-    re_path(r'^swagger(?P<format>.json|.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
-    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+
+    # ── OpenAPI schema + UI ───────────────────────────────────────────────
+    path('api/schema/',         SpectacularAPIView.as_view(),                           name='schema'),
+    path('api/schema/swagger/', SpectacularSwaggerView.as_view(url_name='schema'),      name='swagger-ui'),
+    path('api/schema/redoc/',   SpectacularRedocView.as_view(url_name='schema'),        name='redoc'),
+
+    # ── Application endpoints ─────────────────────────────────────────────
+    path('api/auth/',          include('users.urls')),
+    path('api/candidates/',    include('candidates.urls')),
+    path('api/recruiters/',    include('recruiters.urls')),
+    path('api/billing/',       include('billing.urls')),
+    path('api/notifications/', include('notifications.urls')),
+    path('api/audit/',         include('audit.urls')),
+    path('api/files/',         include('files.urls')),
 ]
-
-
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

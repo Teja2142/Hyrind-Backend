@@ -1,34 +1,21 @@
-from django.urls import path
+﻿from django.urls import path
 from . import views
 
-# API endpoints for recruiters (JSON REST API)
 urlpatterns = [
-    # ============================================================================
-    # AUTHENTICATION & PROFILE - For recruiters
-    # ============================================================================
-    path('register/', views.RecruiterRegistrationView.as_view(), name='recruiter-api-register'),
-    path('login/', views.RecruiterLoginView.as_view(), name='recruiter-api-login'),
-    path('me/', views.RecruiterMeView.as_view(), name='recruiter-me'),
-    path('dashboard/', views.RecruiterDashboardView.as_view(), name='recruiter-api-dashboard'),
-
-    # ============================================================================
-    # ADMIN MANAGEMENT - Admin only endpoints
-    # ============================================================================
-    path('', views.RecruiterListView.as_view(), name='recruiter-list'),
-    path('<uuid:id>/', views.RecruiterDetailView.as_view(), name='recruiter-detail'),
-    path('<uuid:id>/activate/', views.RecruiterActivateView.as_view(), name='recruiter-activate'),
-    path('<uuid:id>/deactivate/', views.RecruiterDeactivateView.as_view(), name='recruiter-deactivate'),
-    # availability_status is updated via PATCH /api/recruiters/<id>/ (RecruiterAdminUpdateSerializer)
-
-    # ============================================================================
-    # ASSIGNMENT ENDPOINTS
-    # ============================================================================
-    # Create a new assignment (admin assigns a client to a recruiter)
-    path('assign/', views.AssignmentCreateView.as_view(), name='assignment-create'),
-
-    # List all assignments with filters
-    path('assignments/', views.AssignmentListView.as_view(), name='assignment-list'),
-
-    # Reassign a client from one recruiter to another (when recruiter is absent)
-    path('assignments/<uuid:id>/reassign/', views.ReassignClientView.as_view(), name='assignment-reassign'),
+    path('me/',            views.recruiter_me,             name='recruiter-me'),
+    path('me/update/',     views.update_recruiter_me,      name='recruiter-me-update'),
+    path('me/bank/',       views.bank_details,             name='recruiter-bank'),
+    path('dashboard/',     views.recruiter_dashboard,      name='recruiter-dashboard'),
+    path('my-candidates/', views.my_candidates,            name='recruiter-my-candidates'),
+    path('all/',                       views.recruiter_list,            name='recruiter-list'),
+    path('<uuid:recruiter_id>/',       views.recruiter_detail,          name='recruiter-detail'),
+    path('<uuid:recruiter_id>/bank/',  views.admin_bank_details,        name='recruiter-admin-bank'),
+    path('assign/',                              views.assign_recruiter,          name='recruiter-assign'),
+    path('unassign/<uuid:assignment_id>/',       views.unassign_recruiter,        name='recruiter-unassign'),
+    path('assignments/',                         views.assignment_list,           name='assignment-list'),
+    path('<uuid:candidate_id>/assignments/',     views.candidate_assignment_list, name='candidate-assignment-list'),
+    path('<uuid:candidate_id>/daily-logs/',      views.daily_logs,                name='recruiter-daily-logs'),
+    path('jobs/<uuid:job_id>/status/',           views.update_job_status,         name='job-status-update'),
+    path('logs/entries/<uuid:log_id>/add/',      views.add_job_entry,             name='job-entry-add'),
+    path('logs/entries/<uuid:entry_id>/update/', views.update_job_entry,          name='job-entry-update'),
 ]

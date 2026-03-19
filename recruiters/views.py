@@ -1,1153 +1,349 @@
-from rest_framework import generics, permissions, status
-from rest_framework.response import Response
+﻿from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.parsers import MultiPartParser, FormParser
-from django.shortcuts import render
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
+from rest_framework.response import Response
 from django.utils import timezone
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-from .models import Recruiter, Assignment, RecruiterRegistration
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+
+from users.models import User
+from users.permissions import IsAdmin, IsApproved, IsRecruiter
+from audit.utils import log_action
+from notifications.utils import send_email, create_notification
+from candidates.models import Candidate
+
+from .models import RecruiterProfile, RecruiterBankDetail, RecruiterAssignment, DailySubmissionLog, JobLinkEntry
 from .serializers import (
-    RecruiterSerializer,
-    RecruiterDashboardSerializer,
-    RecruiterLoginSerializer,
-    RecruiterRegistrationSerializer,
-    RecruiterUpdateSerializer,
-    RecruiterListSerializer,
-    RecruiterAdminUpdateSerializer,
-    AssignmentSerializer,
-    ReassignClientSerializer,
-    RecruiterRegistrationFormSerializer,
-    RecruiterRegistrationFormListSerializer
+    RecruiterProfileSerializer, RecruiterBankDetailSerializer,
+    RecruiterAssignmentSerializer, AssignRecruiterSerializer,
+    DailySubmissionLogSerializer, JobLinkEntrySerializer,
 )
-from users.models import Profile
-from onboarding.models import Onboarding
-from utils.profile_utils import ProfileResolveMixin
 
 
-# ============================================================================
-# RECRUITER AUTHENTICATION & PROFILE ENDPOINTS
-# ============================================================================
+# -- Recruiter Profile --------------------------------------------------------
 
-class RecruiterLoginView(generics.GenericAPIView):
-    """
-    Recruiter login endpoint.
-    Authenticates recruiter and returns JWT tokens and recruiter details.
-    """
-    serializer_class = RecruiterLoginSerializer
-    permission_classes = [AllowAny]
-    
-    @swagger_auto_schema(
-        operation_description="Authenticate recruiter and get JWT tokens",
-        operation_summary="Recruiter Login",
-        request_body=RecruiterLoginSerializer,
-        responses={
-            200: openapi.Response(
-                description="Login successful",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING),
-                        'recruiter_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                        'name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'email': openapi.Schema(type=openapi.TYPE_STRING),
-                        'company_name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'access': openapi.Schema(type=openapi.TYPE_STRING),
-                        'refresh': openapi.Schema(type=openapi.TYPE_STRING),
-                    }
-                )
-            ),
-            401: "Unauthorized - Invalid credentials"
-        },
-        tags=['Recruiters - Auth']
-    )
-    def post(self, request, *args, **kwargs):
-        """Authenticate recruiter and return tokens"""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        email = serializer.validated_data['email']
-        password = serializer.validated_data['password']
-        
-        # Authenticate user
+@extend_schema(summary='Get my recruiter profile', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsRecruiter])
+def recruiter_me(request):
+    try:
+        profile = request.user.recruiter_profile
+    except RecruiterProfile.DoesNotExist:
+        return Response({'error': 'Recruiter profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(RecruiterProfileSerializer(profile).data)
+
+
+@extend_schema(summary='Update my recruiter profile', tags=['Recruiters'])
+@api_view(['PATCH'])
+@permission_classes([IsRecruiter])
+def update_recruiter_me(request):
+    try:
+        profile = request.user.recruiter_profile
+    except RecruiterProfile.DoesNotExist:
+        return Response({'error': 'Recruiter profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    ser = RecruiterProfileSerializer(profile, data=request.data, partial=True)
+    ser.is_valid(raise_exception=True)
+    ser.save()
+    return Response(ser.data)
+
+
+@extend_schema(summary='List all recruiters (Admin)', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def recruiter_list(request):
+    profiles = RecruiterProfile.objects.select_related('user').all().order_by('-created_at')
+    return Response(RecruiterProfileSerializer(profiles, many=True).data)
+
+
+@extend_schema(summary='Get a recruiter by ID (Admin)', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def recruiter_detail(request, recruiter_id):
+    try:
+        profile = RecruiterProfile.objects.select_related('user').get(id=recruiter_id)
+    except RecruiterProfile.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(RecruiterProfileSerializer(profile).data)
+
+
+# -- Bank Details -------------------------------------------------------------
+
+@extend_schema(summary='Get/set my bank details (Recruiter)', tags=['Recruiters'])
+@api_view(['GET', 'POST', 'PUT'])
+@permission_classes([IsRecruiter])
+def bank_details(request):
+    if request.method == 'GET':
         try:
-            user = User.objects.get(email=email)
-            user_auth = authenticate(username=user.username, password=password)
-            
-            if not user_auth:
-                return Response(
-                    {'detail': 'Invalid email or password'},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
-            
-            # Get recruiter
-            profile = Profile.objects.get(user=user)
-            recruiter = Recruiter.objects.get(user=profile)
-            
-            # Check if recruiter is active (approved by admin)
-            if not recruiter.active:
-                return Response(
-                    {'detail': 'Your recruiter account is not yet approved. Please contact an administrator.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
-            
-            # Update last login
-            recruiter.last_login = timezone.now()
-            recruiter.save(update_fields=['last_login'])
-            
-            return Response({
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-                'user': {
-                    'id': str(recruiter.id),
-                    'employee_id': recruiter.employee_id,
-                    'name': recruiter.name,
-                    'email': recruiter.email,
-                    'department': recruiter.get_department_display(),
-                    'specialization': recruiter.get_specialization_display(),
-                    'status': recruiter.status
-                }
-            }, status=status.HTTP_200_OK)
-        
-        except User.DoesNotExist:
-            return Response(
-                {'detail': 'Invalid email or password'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+            bd = request.user.bank_details
+            return Response(RecruiterBankDetailSerializer(bd).data)
+        except RecruiterBankDetail.DoesNotExist:
+            return Response({})
 
-
-class RecruiterRegistrationView(generics.CreateAPIView):
-    """
-    Public endpoint for recruiter registration.
-    Creates User, Profile, and Recruiter instances.
-    Recruiter account starts as inactive and requires admin approval.
-    """
-    serializer_class = RecruiterRegistrationSerializer
-    permission_classes = [AllowAny]
-    
-    @swagger_auto_schema(
-        operation_description="Register a new internal recruiter account (requires admin approval before activation)",
-        operation_summary="Recruiter Registration",
-        request_body=RecruiterRegistrationSerializer,
-        responses={
-            201: openapi.Response(
-                description="Recruiter account created successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                        'employee_id': openapi.Schema(type=openapi.TYPE_STRING),
-                        'name': openapi.Schema(type=openapi.TYPE_STRING),
-                        'email': openapi.Schema(type=openapi.TYPE_STRING),
-                        'department': openapi.Schema(type=openapi.TYPE_STRING),
-                        'specialization': openapi.Schema(type=openapi.TYPE_STRING),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING),
-                        'message': openapi.Schema(type=openapi.TYPE_STRING),
-                    }
-                )
-            ),
-            400: "Bad Request - Validation errors"
-        },
-        tags=['Recruiters - Auth']
+    ser = RecruiterBankDetailSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    bd, _ = RecruiterBankDetail.objects.update_or_create(
+        recruiter=request.user,
+        defaults=ser.validated_data,
     )
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        recruiter = serializer.save()
-        
-        # Send welcome email to recruiter
-        self._send_welcome_email_to_recruiter(recruiter)
-        
-        # Send notification email to admin
-        self._send_notification_to_admin(recruiter)
-        
-        return Response({
-            'id': str(recruiter.id),
-            'employee_id': recruiter.employee_id,
-            'name': recruiter.name,
-            'email': recruiter.email,
-            'department': recruiter.get_department_display(),
-            'specialization': recruiter.get_specialization_display(),
-            'status': recruiter.status,
-            'message': 'Registration successful. Please check your email for further instructions.'
-        }, status=status.HTTP_201_CREATED)
-    
-    def _send_welcome_email_to_recruiter(self, recruiter):
-        """Send welcome email to newly registered recruiter"""
-        try:
-            from utils.email_service import EmailService, RecruiterRegistrationEmailTemplate
-            
-            recruiter_data = {
-                'id': str(recruiter.id),
-                'employee_id': recruiter.employee_id,
-                'name': recruiter.name,
-                'email': recruiter.email,
-                'phone': recruiter.phone,
-                'department_display': recruiter.get_department_display(),
-                'specialization_display': recruiter.get_specialization_display(),
-                'date_of_joining': recruiter.date_of_joining,
-                'max_clients': recruiter.max_clients,
-                'status': recruiter.get_status_display(),
-                'created_at': recruiter.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            subject, text_content, html_content = RecruiterRegistrationEmailTemplate.get_welcome_email_to_recruiter(recruiter_data)
-            EmailService.send_email(
-                subject=subject,
-                text_content=text_content,
-                html_content=html_content,
-                to_emails=[recruiter.email]
-            )
-            
-        except Exception as e:
-            print(f"✗ Failed to send welcome email to recruiter: {str(e)}")
-    
-    def _send_notification_to_admin(self, recruiter):
-        """Send notification email to operations team about new recruiter registration"""
-        try:
-            from utils.email_service import EmailService, RecruiterRegistrationEmailTemplate
-            from django.conf import settings
-            
-            recruiter_data = {
-                'id': str(recruiter.id),
-                'employee_id': recruiter.employee_id,
-                'name': recruiter.name,
-                'email': recruiter.email,
-                'phone': recruiter.phone,
-                'department_display': recruiter.get_department_display(),
-                'specialization_display': recruiter.get_specialization_display(),
-                'date_of_joining': recruiter.date_of_joining,
-                'max_clients': recruiter.max_clients,
-                'status': recruiter.get_status_display(),
-                'created_at': recruiter.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            subject, text_content, html_content = RecruiterRegistrationEmailTemplate.get_admin_notification_email(recruiter_data)
-            operations_email = getattr(settings, 'OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
-            
-            EmailService.send_email(
-                subject=subject,
-                text_content=text_content,
-                html_content=html_content,
-                to_emails=[operations_email]
-            )
-            
-        except Exception as e:
-            print(f"✗ Failed to send notification email to admin: {str(e)}")
-
-
-class RecruiterMeView(generics.RetrieveUpdateAPIView):
-    """
-    Authenticated recruiter profile endpoint.
-    GET: Retrieve own recruiter profile
-    PATCH/PUT: Update own recruiter information
-    """
-    serializer_class = RecruiterSerializer
-    permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_description="Get authenticated recruiter's profile",
-        operation_summary="Get Recruiter Profile",
-        responses={
-            200: RecruiterSerializer,
-            404: "Recruiter not found for authenticated user"
-        },
-        tags=['Recruiters - Profile']
+    log_action(request.user, 'bank_details_updated', str(request.user.id), 'user')
+    send_email(
+        to='hyrind.operations@gmail.com',
+        subject='Recruiter Bank Details Updated',
+        html=f'<p>Recruiter <strong>{request.user.email}</strong> has updated their bank details.</p>',
+        email_type='bank_details_updated',
     )
-    def get(self, request, *args, **kwargs):
-        try:
-            profile = Profile.objects.get(user=request.user)
-            recruiter = Recruiter.objects.get(user=profile)
-            serializer = self.get_serializer(recruiter)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except (Profile.DoesNotExist, Recruiter.DoesNotExist):
-            return Response(
-                {'detail': 'Recruiter profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    @swagger_auto_schema(
-        operation_description="Update authenticated recruiter's profile",
-        operation_summary="Update Recruiter Profile",
-        request_body=RecruiterUpdateSerializer,
-        responses={
-            200: RecruiterSerializer,
-            400: "Bad Request",
-            404: "Recruiter not found"
-        },
-        tags=['Recruiters - Profile']
-    )
-    def patch(self, request, *args, **kwargs):
-        try:
-            profile = Profile.objects.get(user=request.user)
-            recruiter = Recruiter.objects.get(user=profile)
-            serializer = RecruiterUpdateSerializer(recruiter, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            
-            # Log the update
-            try:
-                from audit.utils import log_action
-                log_action(
-                    actor=request.user,
-                    action='recruiter_profile_updated',
-                    target=f'Recruiter:{recruiter.id}',
-                    metadata={'recruiter_id': str(recruiter.id)}
-                )
-            except Exception:
-                pass
-            
-            return Response(RecruiterSerializer(recruiter).data, status=status.HTTP_200_OK)
-        except (Profile.DoesNotExist, Recruiter.DoesNotExist):
-            return Response(
-                {'detail': 'Recruiter profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    def put(self, request, *args, **kwargs):
-        """Full update - same as PATCH for recruiter profile"""
-        return self.patch(request, *args, **kwargs)
+    return Response(RecruiterBankDetailSerializer(bd).data)
 
 
-class RecruiterDashboardView(generics.RetrieveAPIView):
-    """
-    Recruiter dashboard endpoint with stats and assigned clients.
-    Returns comprehensive dashboard data for authenticated recruiter.
-    """
-    serializer_class = RecruiterDashboardSerializer
-    permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_description="Get recruiter dashboard with stats and assigned clients",
-        operation_summary="Recruiter Dashboard",
-        responses={
-            200: RecruiterDashboardSerializer,
-            404: "Recruiter not found"
-        },
-        tags=['Recruiters - Dashboard']
-    )
-    def get(self, request, *args, **kwargs):
-        try:
-            profile = Profile.objects.get(user=request.user)
-            recruiter = Recruiter.objects.get(user=profile)
-            serializer = self.get_serializer(recruiter)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except (Profile.DoesNotExist, Recruiter.DoesNotExist):
-            return Response(
-                {'detail': 'Recruiter profile not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+@extend_schema(summary='View recruiter bank details (Admin only)', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def admin_bank_details(request, recruiter_id):
+    try:
+        profile = RecruiterProfile.objects.get(id=recruiter_id)
+        bd = profile.user.bank_details
+        return Response(RecruiterBankDetailSerializer(bd).data)
+    except (RecruiterProfile.DoesNotExist, RecruiterBankDetail.DoesNotExist):
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
-# ============================================================================
-# RECRUITER MANAGEMENT ENDPOINTS (ADMIN ONLY)
-# ============================================================================
+# -- Recruiter Assignments ----------------------------------------------------
 
-class RecruiterListView(generics.ListAPIView):
-    """
-    List all recruiters.
-    Admin only - returns all recruiters with admin filters.
-    """
-    serializer_class = RecruiterListSerializer
-    permission_classes = [IsAdminUser]
-    
-    @swagger_auto_schema(
-        operation_description="List all recruiters (admin only)",
-        operation_summary="List All Recruiters",
-        manual_parameters=[
-            openapi.Parameter(
-                'active',
-                openapi.IN_QUERY,
-                description='Filter by active status (true/false)',
-                type=openapi.TYPE_BOOLEAN,
-                required=False
-            ),
-            openapi.Parameter(
-                'company_name',
-                openapi.IN_QUERY,
-                description='Filter by company name (partial match)',
-                type=openapi.TYPE_STRING,
-                required=False
-            ),
-        ],
-        responses={
-            200: RecruiterListSerializer(many=True),
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    def get_queryset(self):
-        """Filter based on query parameters"""
-        queryset = Recruiter.objects.all().order_by('-created_at')
-        
-        # Filter by active status
-        active = self.request.query_params.get('active', None)
-        if active is not None:
-            active = active.lower() in ['true', '1', 'yes']
-            queryset = queryset.filter(active=active)
-        
-        # Filter by company name
-        company_name = self.request.query_params.get('company_name', None)
-        if company_name:
-            queryset = queryset.filter(company_name__icontains=company_name)
-        
-        return queryset
+@extend_schema(summary='Assign a recruiter to a candidate (Admin)', tags=['Recruiters'])
+@api_view(['POST'])
+@permission_classes([IsAdmin])
+def assign_recruiter(request):
+    ser = AssignRecruiterSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    d = ser.validated_data
 
+    try:
+        candidate = Candidate.objects.get(id=d['candidate_id'])
+        recruiter = User.objects.get(id=d['recruiter_id'], role='recruiter')
+    except (Candidate.DoesNotExist, User.DoesNotExist):
+        return Response({'error': 'Candidate or recruiter not found'}, status=status.HTTP_404_NOT_FOUND)
 
-class RecruiterDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or delete a recruiter (admin endpoints).
-    - GET: Retrieve recruiter details
-    - PUT/PATCH: Update recruiter information (including active status)
-    - DELETE: Soft delete (set active=False)
-    
-    Lookup by recruiter UUID id.
-    """
-    queryset = Recruiter.objects.all()
-    lookup_field = 'id'
-    permission_classes = [IsAdminUser]
-    
-    @swagger_auto_schema(
-        operation_description="Get recruiter details by UUID (admin only)",
-        operation_summary="Retrieve Recruiter",
-        responses={
-            200: RecruiterSerializer,
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Update recruiter information by UUID (admin only)",
-        operation_summary="Update Recruiter",
-        request_body=RecruiterAdminUpdateSerializer,
-        responses={
-            200: RecruiterSerializer,
-            400: "Bad Request",
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def put(self, request, *args, **kwargs):
-        return super().put(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Partially update recruiter information by UUID (admin only)",
-        operation_summary="Partial Update Recruiter",
-        request_body=RecruiterAdminUpdateSerializer,
-        responses={
-            200: RecruiterSerializer,
-            400: "Bad Request",
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def patch(self, request, *args, **kwargs):
-        return super().patch(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Delete recruiter by UUID (soft delete - sets active=False) (admin only)",
-        operation_summary="Delete Recruiter",
-        responses={
-            204: "No Content - Recruiter deactivated",
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def delete(self, request, *args, **kwargs):
-        recruiter = self.get_object()
-        recruiter.active = False
-        recruiter.save()
-        
-        # Log the deactivation
-        return Response(
-            {'message': 'Recruiter deactivated successfully'},
-            status=status.HTTP_204_NO_CONTENT
-        )
-    
-    def get_serializer_class(self):
-        """Use different serializers for different methods"""
-        if self.request.method in ['PUT', 'PATCH']:
-            return RecruiterAdminUpdateSerializer
-        return RecruiterSerializer
-
-
-class RecruiterActivateView(generics.GenericAPIView):
-    """
-    Admin endpoint to activate/approve a recruiter account and send activation email.
-    """
-    queryset = Recruiter.objects.all()
-    lookup_field = 'id'
-    permission_classes = [IsAdminUser]
-    serializer_class = RecruiterSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Activate (approve) a recruiter account by UUID (admin only)",
-        operation_summary="Activate Recruiter",
-        responses={
-            200: RecruiterSerializer,
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def patch(self, request, *args, **kwargs):
-        """Activate a recruiter"""
-        recruiter = self.get_object()
-        recruiter.active = True
-        # Also enable the underlying Django user and profile so they can log in
-        try:
-            profile = recruiter.user
-            django_user = profile.user
-            django_user.is_active = True
-            django_user.save(update_fields=['is_active'])
-            # mirror on profile
-            profile.active = True
-            profile.save(update_fields=['active'])
-        except Exception:
-            # If associated User/Profile can't be found, continue and rely on recruiter.active
-            pass
-
-        # mark status appropriately
-        recruiter.status = 'active'
-        recruiter.active = True
-        recruiter.save(update_fields=['active', 'status'])
-        
-        # Send activation email to the recruiter
-        self._send_activation_email_to_recruiter(recruiter)
-        
-        # Log the activation
-        serializer = RecruiterSerializer(recruiter)
-        return Response({
-            'success': True,
-            'message': 'Recruiter activated successfully',
-            'data': {
-                'recruiter': serializer.data,
-                'status': 'active',
-                'is_active': recruiter.active,  # Use actual DB value
-                'activated_at': recruiter.updated_at if hasattr(recruiter, 'updated_at') else None
-            }
-        }, status=status.HTTP_200_OK)
-    
-    def _send_activation_email_to_recruiter(self, recruiter):
-        """
-        Send activation notification email to the recruiter
-        
-        Args:
-            recruiter: Recruiter instance of the activated recruiter
-        """
-        try:
-            from utils.email_service import EmailService, RecruiterActivationEmailTemplate
-            import logging
-            
-            logger = logging.getLogger(__name__)
-            
-            # Prepare recruiter data for email template
-            recruiter_data = {
-                'employee_id': recruiter.employee_id,
-                'name': recruiter.name,
-                'email': recruiter.email,
-                'department_display': recruiter.get_department_display() if recruiter.department else 'N/A',
-                'specialization_display': recruiter.get_specialization_display() if recruiter.specialization else 'N/A',
-                'max_clients': recruiter.max_clients,
-                'login_url': 'https://hyrind.com/recruiter/login',  # Update with your actual frontend URL
-                'dashboard_url': 'https://hyrind.com/recruiter/dashboard',  # Update with your actual frontend URL
-            }
-            
-            # Get email content from template
-            subject, text_content, html_content = RecruiterActivationEmailTemplate.get_activation_email(recruiter_data)
-            
-            # Send email using central EmailService
-            success = EmailService.send_email(
-                subject=subject,
-                text_content=text_content,
-                html_content=html_content,
-                to_emails=[recruiter.email]
-            )
-            
-            if success:
-                logger.info(f"Activation email sent successfully to recruiter {recruiter.email}")
-            else:
-                logger.warning(f"Failed to send activation email to recruiter {recruiter.email}")
-                
-        except Exception as e:
-            # Log the error but don't fail the activation process
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error sending activation email to recruiter {recruiter.email}: {str(e)}")
-
-
-
-class RecruiterDeactivateView(generics.GenericAPIView):
-    """
-    Admin endpoint to deactivate a recruiter account.
-    """
-    queryset = Recruiter.objects.all()
-    lookup_field = 'id'
-    permission_classes = [IsAdminUser]
-    serializer_class = RecruiterSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Deactivate a recruiter account by UUID (admin only)",
-        operation_summary="Deactivate Recruiter",
-        responses={
-            200: RecruiterSerializer,
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiters - Admin']
-    )
-    def patch(self, request, *args, **kwargs):
-        """Deactivate a recruiter"""
-        recruiter = self.get_object()
-        recruiter.active = False
-        # Also disable the underlying Django user and profile to prevent login
-        try:
-            profile = recruiter.user
-            django_user = profile.user
-            django_user.is_active = False
-            django_user.save(update_fields=['is_active'])
-            profile.active = False
-            profile.save(update_fields=['active'])
-        except Exception:
-            pass
-
-        recruiter.status = 'inactive'
-        recruiter.active = False
-        recruiter.save(update_fields=['active', 'status'])
-        
-        # Log the deactivation
-        serializer = RecruiterSerializer(recruiter)
-        return Response({
-            'success': True,
-            'message': 'Recruiter deactivated successfully',
-            'data': {
-                'recruiter': serializer.data,
-                'status': 'inactive',
-                'is_active': recruiter.active,  # Use actual DB value
-                'deactivated_at': recruiter.updated_at if hasattr(recruiter, 'updated_at') else None
-            }
-        }, status=status.HTTP_200_OK)
-
-
-# ============================================================================
-# ASSIGNMENT ENDPOINTS
-# ============================================================================
-
-class AssignmentCreateView(ProfileResolveMixin, generics.CreateAPIView):
-    """Create an assignment between a profile and recruiter"""
-    queryset = Assignment.objects.all()
-    serializer_class = AssignmentSerializer
-    permission_classes = [permissions.IsAdminUser]
-
-    @swagger_auto_schema(
-        operation_description="Create assignment between a candidate profile and recruiter (admin only)",
-        operation_summary="Create Assignment",
-        request_body=AssignmentSerializer,
-        responses={
-            201: AssignmentSerializer,
-            400: "Bad Request"
-        },
-        tags=['Assignments']
-    )
-    def post(self, request, *args, **kwargs):
-        recruiter_id = request.data.get('recruiter_id')
-        profile = self.get_profile()
-
-        if not recruiter_id:
-            return Response(
-                {'detail': 'recruiter_id is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            recruiter = Recruiter.objects.get(id=recruiter_id)
-        except Recruiter.DoesNotExist:
-            return Response(
-                {'detail': 'Recruiter not found.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if not recruiter.active or recruiter.status != 'active':
-            return Response(
-                {'detail': 'Recruiter is not active.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not recruiter.can_accept_more_clients():
-            return Response(
-                {'detail': 'Recruiter has reached maximum client capacity.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check if onboarding exists and is completed
-        try:
-            onboarding = Onboarding.objects.get(profile=profile)
-            if not onboarding.completed:
-                return Response(
-                    {'detail': 'Onboarding not completed.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        except Onboarding.DoesNotExist:
-            # If no onboarding record exists, create one or allow assignment anyway
-            # For admin-initiated assignments, we'll allow the assignment without onboarding
-            pass
-        
-        if Assignment.objects.filter(profile=profile, recruiter=recruiter, status='active').exists():
-            return Response(
-                {'detail': 'Profile is already actively assigned to this recruiter.'},
-                status=status.HTTP_409_CONFLICT
-            )
-
-        had_active_assignments = Assignment.objects.filter(profile=profile, status='active').exists()
-
-        data = request.data.copy()
-        data['profile_id'] = str(profile.id)
-        data['recruiter_id'] = str(recruiter.id)
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        assignment = serializer.save(assigned_by=request.user)
-        
-        # Update profile status to "assigned" after recruiter assignment
-        try:
-            if not had_active_assignments and profile.registration_status == 'ready_to_assign':
-                profile.update_status('assigned', notes=f'Assigned to recruiter: {assignment.recruiter.name if assignment.recruiter else "N/A"}')
-        except Exception:
-            pass
-        
-        # Audit log
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user if request.user.is_authenticated else None,
-                action='recruiter_assigned',
-                target=f'Profile:{str(profile.id)}',
-                metadata={'recruiter_id': recruiter_id}
-            )
-        except Exception:
-            pass
-        
-        response_serializer = self.get_serializer(assignment)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-
-# ============================================================================
-# ASSIGNMENT LIST / DETAIL / REASSIGN / AVAILABILITY ENDPOINTS
-# ============================================================================
-
-class AssignmentListView(generics.ListAPIView):
-    """
-    Admin endpoint – list all client-recruiter assignments.
-
-    GET /api/recruiters/assignments/
-
-    Query Parameters:
-        - profile_id    : filter by client profile UUID
-        - recruiter_id  : filter by recruiter UUID
-        - status        : active | placed | on_hold | reassigned | completed | cancelled
-        - role          : primary | secondary | team_lead | backup
-    """
-    serializer_class = AssignmentSerializer
-    permission_classes = [IsAdminUser]
-
-    @swagger_auto_schema(
-        operation_summary='List all assignments (admin)',
-        operation_description='Returns all client-recruiter assignments with optional filters.',
-        manual_parameters=[
-            openapi.Parameter('profile_id', openapi.IN_QUERY, type=openapi.TYPE_STRING),
-            openapi.Parameter('recruiter_id', openapi.IN_QUERY, type=openapi.TYPE_STRING),
-            openapi.Parameter('status', openapi.IN_QUERY, type=openapi.TYPE_STRING),
-            openapi.Parameter('role', openapi.IN_QUERY, type=openapi.TYPE_STRING),
-        ],
-        responses={200: AssignmentSerializer(many=True)},
-        tags=['Assignments'],
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-
-    def get_queryset(self):
-        qs = Assignment.objects.select_related('profile', 'recruiter').order_by('-assigned_at')
-        p = self.request.query_params
-        if p.get('profile_id'):
-            qs = qs.filter(profile__id=p['profile_id'])
-        if p.get('recruiter_id'):
-            qs = qs.filter(recruiter__id=p['recruiter_id'])
-        if p.get('status'):
-            qs = qs.filter(status=p['status'])
-        if p.get('role'):
-            qs = qs.filter(role=p['role'])
-        return qs
-
-
-class ReassignClientView(generics.GenericAPIView):
-    """
-    Admin endpoint – reassign a client from an existing assignment to a new recruiter.
-
-    POST /api/recruiters/assignments/<uuid:id>/reassign/
-
-    Use this when a recruiter is absent, on leave, or workload needs rebalancing.
-
-    Workflow:
-        1. The current active assignment status is changed to 'reassigned'.
-        2. A new Assignment is created for the same client with the new recruiter,
-           linked back to the original via `reassigned_from`.
-        3. Profile status and recruiter client counts are updated automatically.
-    """
-    queryset = Assignment.objects.all()
-    lookup_field = 'id'
-    serializer_class = ReassignClientSerializer
-    permission_classes = [IsAdminUser]
-
-    @swagger_auto_schema(
-        operation_summary='Reassign client to another recruiter (admin)',
-        request_body=ReassignClientSerializer,
-        responses={201: AssignmentSerializer, 400: 'Bad Request', 404: 'Not Found'},
-        tags=['Assignments'],
-    )
-    def post(self, request, id=None, *args, **kwargs):
-        try:
-            original = Assignment.objects.get(id=id)
-        except Assignment.DoesNotExist:
-            return Response({'detail': 'Assignment not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        if original.status not in ('active', 'on_hold'):
-            return Response(
-                {'detail': f"Cannot reassign an assignment with status '{original.status}'. "
-                           f"Only 'active' or 'on_hold' assignments can be reassigned."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = ReassignClientSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        new_recruiter = Recruiter.objects.get(id=data['new_recruiter_id'])
-
-        if new_recruiter == original.recruiter:
-            return Response(
-                {'detail': 'The new recruiter is the same as the current one. No reassignment needed.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Mark original assignment as reassigned
-        original.status = 'reassigned'
-        original.reassignment_reason = data['reason']
-        original.save(update_fields=['status', 'reassignment_reason'])
-
-        # Create the new assignment
-        new_assignment = Assignment.objects.create(
-            profile=original.profile,
-            recruiter=new_recruiter,
-            status='active',
-            priority=data.get('priority') or original.priority,
-            role=data.get('role', 'primary'),
-            notes=original.notes,
-            internal_comments=original.internal_comments,
+    try:
+        assignment = RecruiterAssignment.objects.create(
+            candidate=candidate,
+            recruiter=recruiter,
+            role_type=d.get('role_type', ''),
             assigned_by=request.user,
-            reassigned_from=original,
-            reassignment_reason=data['reason'],
         )
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Update profile status
-        try:
-            profile = original.profile
-            profile.update_status(
-                'assigned',
-                notes=f'Reassigned to recruiter: {new_recruiter.name}. Reason: {data["reason"]}'
-            )
-        except Exception:
-            pass
+    log_action(request.user, 'recruiter_assigned', str(candidate.id), 'candidate', {
+        'recruiter_id': str(recruiter.id),
+    })
+    create_notification(candidate.user, 'Recruiter Assigned',
+                        f'A recruiter has been assigned to your profile.')
+    create_notification(recruiter, 'New Candidate Assigned',
+                        f'You have been assigned to a new candidate.')
+    return Response(RecruiterAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)
 
-        # Audit log
-        try:
-            from audit.utils import log_action
-            log_action(
-                actor=request.user,
-                action='client_reassigned',
-                target=f'Assignment:{new_assignment.id}',
-                metadata={
-                    'profile': str(original.profile.id),
-                    'from_recruiter': str(original.recruiter.id) if original.recruiter else None,
-                    'to_recruiter': str(new_recruiter.id),
-                    'reason': data['reason'],
-                    'original_assignment': str(original.id),
-                }
-            )
-        except Exception:
-            pass
 
-        return Response(
-            AssignmentSerializer(new_assignment).data,
-            status=status.HTTP_201_CREATED,
+@extend_schema(summary='Unassign a recruiter from a candidate (Admin)', tags=['Recruiters'])
+@api_view(['POST'])
+@permission_classes([IsAdmin])
+def unassign_recruiter(request, assignment_id):
+    try:
+        assignment = RecruiterAssignment.objects.get(id=assignment_id)
+    except RecruiterAssignment.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    assignment.is_active    = False
+    assignment.unassigned_at = timezone.now()
+    assignment.save()
+    log_action(request.user, 'recruiter_unassigned', str(assignment.candidate_id), 'candidate', {
+        'recruiter_id': str(assignment.recruiter_id),
+    })
+    return Response({'message': 'Recruiter unassigned'})
+
+
+@extend_schema(summary='List all active assignments (Admin)', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def assignment_list(request):
+    assignments = RecruiterAssignment.objects.select_related('candidate__user', 'recruiter').filter(is_active=True)
+    return Response(RecruiterAssignmentSerializer(assignments, many=True).data)
+
+
+# -- Daily Submission Logs ----------------------------------------------------
+
+@extend_schema(summary='List daily logs for a candidate', tags=['Recruiters'])
+@api_view(['GET'])
+@permission_classes([IsApproved])
+def daily_log_list(request, candidate_id):
+    logs = DailySubmissionLog.objects.filter(candidate_id=candidate_id).prefetch_related('job_entries')
+    return Response(DailySubmissionLogSerializer(logs, many=True).data)
+
+
+@extend_schema(summary='Create a daily submission log', tags=['Recruiters'])
+@api_view(['POST'])
+@permission_classes([IsRecruiter])
+def create_daily_log(request, candidate_id):
+    try:
+        candidate = Candidate.objects.get(id=candidate_id)
+    except Candidate.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    ser = DailySubmissionLogSerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    log = ser.save(candidate=candidate, recruiter=request.user)
+    return Response(DailySubmissionLogSerializer(log).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(summary='Add a job entry to a daily log', tags=['Recruiters'])
+@api_view(['POST'])
+@permission_classes([IsRecruiter])
+def add_job_entry(request, log_id):
+    try:
+        log = DailySubmissionLog.objects.get(id=log_id)
+    except DailySubmissionLog.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    ser = JobLinkEntrySerializer(data=request.data)
+    ser.is_valid(raise_exception=True)
+    entry = ser.save(
+        submission_log=log, candidate=log.candidate,
+        submitted_by=request.user, fetch_status='pending',
+    )
+    return Response(JobLinkEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(summary='Update a job entry', tags=['Recruiters'])
+@api_view(['PATCH'])
+@permission_classes([IsRecruiter])
+def update_job_entry(request, entry_id):
+    try:
+        entry = JobLinkEntry.objects.get(id=entry_id)
+    except JobLinkEntry.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    ser = JobLinkEntrySerializer(entry, data=request.data, partial=True)
+    ser.is_valid(raise_exception=True)
+    ser.save()
+    return Response(ser.data)
+
+
+# ── Additional views matching frontend api.ts paths ───────────────────────────
+
+@extend_schema(
+    summary='List candidates assigned to the current recruiter',
+    responses={200: OpenApiResponse(description='List of assigned candidates')},
+    tags=['Recruiters'],
+)
+@api_view(['GET'])
+@permission_classes([IsRecruiter])
+def my_candidates(request):
+    assigned_ids = RecruiterAssignment.objects.filter(
+        recruiter=request.user, is_active=True
+    ).values_list('candidate_id', flat=True)
+    from candidates.models import Candidate
+    from candidates.serializers import CandidateListSerializer
+    candidates = Candidate.objects.filter(id__in=assigned_ids).select_related('user__profile')
+    return Response(CandidateListSerializer(candidates, many=True).data)
+
+
+@extend_schema(
+    summary='Recruiter dashboard — assigned candidates + stats',
+    responses={200: OpenApiResponse(description='Dashboard payload with candidates and stats')},
+    tags=['Recruiters'],
+)
+@api_view(['GET'])
+@permission_classes([IsRecruiter])
+def recruiter_dashboard(request):
+    from candidates.models import Candidate
+    from candidates.serializers import CandidateListSerializer
+
+    active_assignments = RecruiterAssignment.objects.filter(
+        recruiter=request.user, is_active=True
+    ).select_related('candidate__user__profile')
+    active_ids = active_assignments.values_list('candidate_id', flat=True)
+    candidates = Candidate.objects.filter(id__in=active_ids).select_related('user__profile')
+
+    all_ids = RecruiterAssignment.objects.filter(
+        recruiter=request.user
+    ).values_list('candidate_id', flat=True)
+    placed_count = Candidate.objects.filter(id__in=all_ids, status='placed_closed').count()
+
+    return Response({
+        'stats': {
+            'total_assigned': len(active_ids),
+            'active':         candidates.count(),
+            'placed':         placed_count,
+        },
+        'candidates': CandidateListSerializer(candidates, many=True).data,
+    })
+
+
+@extend_schema(
+    summary='List assignments for a specific candidate',
+    responses={200: RecruiterAssignmentSerializer(many=True)},
+    tags=['Recruiters'],
+)
+@api_view(['GET'])
+@permission_classes([IsApproved])
+def candidate_assignment_list(request, candidate_id):
+    assignments = RecruiterAssignment.objects.filter(
+        candidate_id=candidate_id
+    ).select_related('recruiter')
+    return Response(RecruiterAssignmentSerializer(assignments, many=True).data)
+
+
+@extend_schema(
+    summary='Get or create daily submission logs for a candidate (GET+POST)',
+    description='GET returns all logs for this candidate. POST creates a new daily log with optional job_links array.',
+    responses={200: DailySubmissionLogSerializer(many=True), 201: DailySubmissionLogSerializer},
+    tags=['Recruiters'],
+)
+@api_view(['GET', 'POST'])
+@permission_classes([IsRecruiter])
+def daily_logs(request, candidate_id):
+    if request.method == 'GET':
+        logs = DailySubmissionLog.objects.filter(
+            candidate_id=candidate_id
+        ).prefetch_related('job_entries').order_by('-log_date')
+        return Response(DailySubmissionLogSerializer(logs, many=True).data)
+
+    try:
+        candidate = Candidate.objects.get(id=candidate_id)
+    except Candidate.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    log = DailySubmissionLog.objects.create(
+        candidate=candidate,
+        recruiter=request.user,
+        applications_count=request.data.get('applications_count', 0),
+        notes=request.data.get('notes', ''),
+    )
+    for jl in request.data.get('job_links', []):
+        JobLinkEntry.objects.create(
+            submission_log=log,
+            candidate=candidate,
+            company_name=jl.get('company_name', ''),
+            role_title=jl.get('role_title', ''),
+            job_url=jl.get('job_url', ''),
+            application_status=jl.get('status', 'applied'),
+            submitted_by=request.user,
         )
+    return Response(DailySubmissionLogSerializer(log).data, status=status.HTTP_201_CREATED)
 
 
-# ============================================================================
-# RECRUITER REGISTRATION FORM ENDPOINTS (COMPREHENSIVE ONBOARDING)
-# ============================================================================
-
-class RecruiterRegistrationFormCreateView(generics.CreateAPIView):
-    """
-    Public endpoint for comprehensive recruiter registration form submission.
-    Accepts multipart form data with optional file uploads to MinIO storage.
-    """
-    queryset = RecruiterRegistration.objects.all()
-    serializer_class = RecruiterRegistrationFormSerializer
-    permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
-    
-    @swagger_auto_schema(
-        operation_description="Submit comprehensive recruiter registration form (public endpoint)",
-        operation_summary="Create Recruiter Registration Form",
-        request_body=RecruiterRegistrationFormSerializer,
-        responses={
-            201: openapi.Response(
-                description="Recruiter registration created successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                        'message': openapi.Schema(type=openapi.TYPE_STRING),
-                        'email': openapi.Schema(type=openapi.TYPE_STRING),
-                    }
-                )
-            ),
-            400: "Bad Request - Validation errors"
-        },
-        tags=['Recruiter Registration Form']
-    )
-    def post(self, request, *args, **kwargs):
-        """Create recruiter registration"""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
-        
-        # Log the registration
-        return Response({
-            'message': 'Recruiter registration form submitted successfully',
-            'id': str(instance.id),
-            'email': instance.email,
-            'status': 'pending_verification'
-        }, status=status.HTTP_201_CREATED)
-
-
-class RecruiterRegistrationFormListView(generics.ListAPIView):
-    """
-    Admin endpoint to list all recruiter registrations.
-    Admin only - returns all registrations with filtering options.
-    """
-    queryset = RecruiterRegistration.objects.all()
-    serializer_class = RecruiterRegistrationFormListSerializer
-    permission_classes = [IsAdminUser]
-    
-    @swagger_auto_schema(
-        operation_description="Get list of recruiter registrations (admin only)",
-        operation_summary="List Recruiter Registrations",
-        manual_parameters=[
-            openapi.Parameter(
-                'verified',
-                openapi.IN_QUERY,
-                description='Filter by verification status (true/false)',
-                type=openapi.TYPE_BOOLEAN,
-                required=False
-            ),
-            openapi.Parameter(
-                'email',
-                openapi.IN_QUERY,
-                description='Filter by email (partial match)',
-                type=openapi.TYPE_STRING,
-                required=False
-            ),
-        ],
-        responses={
-            200: RecruiterRegistrationFormListSerializer(many=True),
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiter Registration Form']
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    def get_queryset(self):
-        """Filter based on query parameters"""
-        queryset = RecruiterRegistration.objects.all().order_by('-created_at')
-        
-        # Filter by verification status
-        verified = self.request.query_params.get('verified', None)
-        if verified is not None:
-            is_verified = verified.lower() in ['true', '1', 'yes']
-            queryset = queryset.filter(is_verified=is_verified)
-        
-        # Filter by email
-        email = self.request.query_params.get('email', None)
-        if email:
-            queryset = queryset.filter(email__icontains=email)
-        
-        return queryset
-
-
-class RecruiterRegistrationFormDetailView(generics.RetrieveUpdateAPIView):
-    """
-    Admin endpoint to retrieve and update recruiter registration details.
-    Supports file uploads for missing documents.
-    """
-    queryset = RecruiterRegistration.objects.all()
-    serializer_class = RecruiterRegistrationFormSerializer
-    lookup_field = 'id'
-    permission_classes = [IsAdminUser]
-    parser_classes = [MultiPartParser, FormParser]
-    
-    @swagger_auto_schema(
-        operation_description="Get recruiter registration details by UUID (admin only)",
-        operation_summary="Retrieve Recruiter Registration",
-        responses={
-            200: RecruiterRegistrationFormSerializer,
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiter Registration Form']
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_description="Update recruiter registration details by UUID (admin only, supports file uploads)",
-        operation_summary="Update Recruiter Registration",
-        request_body=RecruiterRegistrationFormSerializer,
-        responses={
-            200: RecruiterRegistrationFormSerializer,
-            400: "Bad Request",
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiter Registration Form']
-    )
-    def patch(self, request, *args, **kwargs):
-        return super().patch(request, *args, **kwargs)
-    
-    def put(self, request, *args, **kwargs):
-        """Full update"""
-        return super().put(request, *args, **kwargs)
-
-
-class RecruiterRegistrationFormVerifyView(generics.GenericAPIView):
-    """
-    Admin endpoint to verify/approve recruiter registration.
-    """
-    queryset = RecruiterRegistration.objects.all()
-    lookup_field = 'id'
-    permission_classes = [IsAdminUser]
-    serializer_class = RecruiterRegistrationFormSerializer
-    
-    @swagger_auto_schema(
-        operation_description="Verify recruiter registration by UUID (admin only)",
-        operation_summary="Verify Recruiter Registration",
-        responses={
-            200: RecruiterRegistrationFormSerializer,
-            404: "Not Found",
-            403: "Forbidden - Admin access required"
-        },
-        tags=['Recruiter Registration Form']
-    )
-    def patch(self, request, id=None, *args, **kwargs):
-        """Verify a recruiter registration"""
-        try:
-            registration = RecruiterRegistration.objects.get(id=id)
-            registration.is_verified = True
-            registration.save()
-
-            # Auto-create User, Profile, and Recruiter if not existing
-            try:
-                from django.contrib.auth.models import User
-                from django.contrib.auth import get_user_model
-                from users.models import Profile
-
-                UserModel = get_user_model()
-                # Check if a user with this email exists
-                user = None
-                if UserModel.objects.filter(email=registration.email).exists():
-                    user = UserModel.objects.filter(email=registration.email).first()
-                else:
-                    # Create a user with a random password and keep inactive until admin activates
-                    random_password = UserModel.objects.make_random_password()
-                    user = UserModel.objects.create_user(
-                        username=registration.email,
-                        email=registration.email,
-                        password=random_password,
-                        first_name=(registration.full_name.split(' ')[0] if registration.full_name else ''),
-                        last_name=(' '.join(registration.full_name.split(' ')[1:]) if registration.full_name and len(registration.full_name.split(' '))>1 else '')
-                    )
-                    user.is_active = False
-                    user.save(update_fields=['is_active'])
-
-                # Create or get Profile
-                profile, _ = Profile.objects.get_or_create(
-                    user=user,
-                    defaults={
-                        'first_name': (registration.full_name.split(' ')[0] if registration.full_name else ''),
-                        'last_name': (' '.join(registration.full_name.split(' ')[1:]) if registration.full_name and len(registration.full_name.split(' '))>1 else ''),
-                        'email': registration.email,
-                        'phone': registration.phone_number,
-                    }
-                )
-
-                # Create Recruiter if not exists
-                from .models import Recruiter
-                if not Recruiter.objects.filter(email=registration.email).exists():
-                    recruiter = Recruiter.objects.create(
-                        user=profile,
-                        name=registration.full_name,
-                        email=registration.email,
-                        phone=registration.phone_number,
-                        company_name='',
-                        active=False,
-                    )
-                else:
-                    recruiter = Recruiter.objects.filter(email=registration.email).first()
-
-                # Try sending an informational email to the recruiter (fail silently)
-                try:
-                    from django.core.mail import send_mail
-                    from django.conf import settings
-                    send_mail(
-                        'Your recruiter account has been created',
-                        f'Hello {registration.full_name},\n\nYour reviewer account has been verified by admin. You can log in using your email: {registration.email}. If you did not set a password, please use the password reset link to set your password.',
-                        settings.DEFAULT_FROM_EMAIL,
-                        [registration.email],
-                        fail_silently=True
-                    )
-                except Exception:
-                    pass
-
-            except Exception:
-                # If any of the auto-create steps fail, continue but log via audit
-                pass
-            
-            # Log the verification
-            serializer = RecruiterRegistrationFormSerializer(registration)
-            return Response({
-                'message': 'Recruiter registration verified successfully',
-                'registration': serializer.data
-            }, status=status.HTTP_200_OK)
-        
-        except RecruiterRegistration.DoesNotExist:
-            return Response(
-                {'detail': 'Recruiter registration not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+@extend_schema(
+    summary='Update job link / application status',
+    description='Candidate or recruiter updates the status of a tracked job application.',
+    request={'application/json': {'type': 'object', 'properties': {
+        'status': {'type': 'string', 'description': 'applied | callback | rejected | offer | other'},
+    }}},
+    responses={200: JobLinkEntrySerializer},
+    tags=['Recruiters'],
+)
+@api_view(['POST'])
+@permission_classes([IsApproved])
+def update_job_status(request, job_id):
+    try:
+        job = JobLinkEntry.objects.get(id=job_id)
+    except JobLinkEntry.DoesNotExist:
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    new_status = request.data.get('status')
+    if new_status:
+        job.application_status = new_status
+        job.save(update_fields=['application_status'])
+    return Response(JobLinkEntrySerializer(job).data)

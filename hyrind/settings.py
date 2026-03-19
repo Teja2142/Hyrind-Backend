@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -82,38 +83,82 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third-party
     'rest_framework',
     'rest_framework_simplejwt',
-    'drf_yasg',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'drf_spectacular',
+    # Local apps
     'users',
-    'jobs',
-    'payments',
-    'onboarding',
-    'subscriptions',
-    'recruiters',
     'audit',
+    'notifications',
+    'candidates',
+    'recruiters',
+    'billing',
+    'chat',
+    'config',
+    'files',
 ]
+# Custom user model — must come before REST_FRAMEWORK
+AUTH_USER_MODEL = 'users.User'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
 }
 
-# SimpleJWT settings (optional, can be customized)
-from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False,
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
-    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Hyrind API',
+    'DESCRIPTION': (
+        'Backend API for the Hyrind placement management platform.\n\n'
+        'Roles: candidate | recruiter | team_lead | team_manager | admin | finance_admin\n\n'
+        '**Authentication**: Protected endpoints require a Bearer JWT in the Authorization header.\n'
+        'Obtain a token via `POST /api/auth/login/`, then pass: `Authorization: Bearer <access_token>`'
+    ),
+    'VERSION': '4.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
+    # Global JWT security — every endpoint shows the lock icon; use @extend_schema(security=[]) to opt-out
+    'SECURITY': [{'BearerAuth': []}],
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'Obtain via POST /api/auth/login/ → copy the `access` value → click Authorize above',
+            }
+        }
+    },
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+        'displayRequestDuration': True,
+        'deepLinking': True,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+    },
 }
 
 MIDDLEWARE = [
@@ -135,6 +180,8 @@ CORS_ALLOWED_ORIGINS = [
     PRODUCTION_DOMAIN,
     API_STAGING_DOMAIN,
     'http://localhost:5173',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
     STAGING_DOMAIN
 ]
 
@@ -308,17 +355,6 @@ LOGGING = {
 # Toggle request-level audit logging (set to False to disable request logging)
 AUDIT_LOG_REQUESTS = True
 
-# Swagger settings to enable Bearer auth in the UI
-SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header'
-        }
-    },
-}
-
 # Email Configuration
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
@@ -327,7 +363,10 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'gktechnologies.stl@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'gktechnologies.stl@gmail.com')
-OPERATIONS_EMAIL = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+OPERATIONS_EMAIL            = os.environ.get('OPERATIONS_EMAIL', 'hyrind.operations@gmail.com')
+# Used in transactional emails and notification links
+ADMIN_NOTIFICATION_EMAIL    = os.environ.get('ADMIN_NOTIFICATION_EMAIL', OPERATIONS_EMAIL)
+SITE_URL                    = os.environ.get('SITE_URL', 'https://hyrnd.netlify.app')
 
 # ------------------------ Razorpay Settings ------------------------
 # Configure these via environment variables in production. Example .env keys:

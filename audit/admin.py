@@ -4,7 +4,8 @@ from django.utils.html import format_html
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ('timestamp', 'actor', 'action', 'target', 'metadata')
-    list_filter = ('action', 'timestamp')
-    search_fields = ('actor__username', 'action', 'target')
-    readonly_fields = ('timestamp',)
+    list_display    = ('created_at', 'actor', 'action', 'target_type', 'target_id', 'details')
+    list_filter     = ('action', 'created_at')
+    search_fields   = ('actor__email', 'action', 'target_type', 'target_id')
+    readonly_fields = ('created_at',)
+    ordering        = ('-created_at',)

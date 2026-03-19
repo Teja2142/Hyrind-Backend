@@ -1,104 +1,37 @@
 from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
+from drf_spectacular.utils import extend_schema
 from . import views
-from .views import LoginView
-# Import role suggestions admin view
-from jobs.recommendation_views import user_role_suggestions
+
+# Give the built-in TokenRefreshView a clean Swagger schema
+TokenRefreshView = extend_schema(
+    summary='Refresh access token',
+    tags=['Auth'],
+    responses={
+        200: {'type': 'object', 'properties': {
+            'access': {'type': 'string', 'description': 'New short-lived access token'},
+        }},
+    },
+)(TokenRefreshView)
 
 urlpatterns = [
-    # ============================================================================
-    # USER ENDPOINTS (Industry Standard RESTful API)
-    # ============================================================================
-    # List ALL users in system (clients, recruiters, admins)
-    path('', views.UserList.as_view(), name='user-list'),
-    # List ALL user profiles with detailed information
-    path('profiles/', views.ProfileList.as_view(), name='profile-list'),
-    # Get/Update/Delete specific user profile
-    path('profiles/<uuid:id>/', views.ProfileRetrieveUpdateDestroy.as_view(), name='profile-detail'),
-    # Profile-based nested endpoints (Admin only)
-    path('profiles/<uuid:profile_id>/client-intake/', views.profile_client_intake_sheet, name='profile-client-intake'),
-    path('profiles/<uuid:profile_id>/credential-sheet/', views.profile_credential_sheet, name='profile-credential-sheet'),
-    
-    # ============================================================================
-    # CLIENT ENDPOINTS (Client-Specific Filtered Views)
-    # ============================================================================
-    # List ONLY clients (candidates seeking jobs) - excludes recruiters
-    path('clients/', views.ClientListView.as_view(), name='client-list'),
-    # List ONLY client profiles with detailed information - excludes recruiters
-    path('clients/profiles/', views.ClientProfileList.as_view(), name='client-profile-list'),
-    
-    # ============================================================================
-    # PUBLIC ENDPOINTS (No Authentication Required)
-    # ============================================================================
-    # Client registration
-    path('register/', views.RegistrationView.as_view(), name='user-register'),
-    # Interest submission form
-    path('interest/', views.InterestSubmissionCreateView.as_view(), name='interest-submit'),
-    # Contact form submission
-    path('contact/', views.ContactCreateView.as_view(), name='contact-submit'),
-    
-    # ============================================================================
-    # AUTHENTICATION ENDPOINTS
-    # ============================================================================
-    # Client login
-    path('login/', LoginView.as_view(), name='user-login'),
-    # Get current logged-in user profile
-    path('me/', views.CurrentUserProfileView.as_view(), name='current-user-profile'),
-    
-    # ============================================================================
-    # "ME" ENDPOINTS - Simplified Access for Authenticated Users
-    # ============================================================================
-    # My client intake sheet - No UUID needed
-    path('me/client-intake/', views.my_client_intake_sheet, name='my-client-intake'),
-    # My credential sheet - No UUID needed
-    path('me/credential-sheet/', views.my_credential_sheet, name='my-credential-sheet'),
-    
-    # ============================================================================
-    # PASSWORD MANAGEMENT ENDPOINTS
-    # ============================================================================
-    # Request password reset (Forgot Password on login page)
-    path('password-reset/request/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
-    # Verify token from email link (GET) or confirm password reset (POST)
-    path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
-    # Change password (Dashboard settings - requires authentication)
-    path('password-change/', views.PasswordChangeView.as_view(), name='password-change'),
-    
-    # ============================================================================
-    # ADMIN ENDPOINTS
-    # ============================================================================
-    # Admin profile management
-    path('admin/profile/', views.AdminProfileView.as_view(), name='admin-profile'),
-    # Admin registration
-    path('admin/register/', views.AdminRegisterView.as_view(), name='admin-register'),
-    # Admin password change
-    path('admin/password/', views.AdminPasswordChangeView.as_view(), name='admin-password-change'),
-    
-    # ============================================================================
-    # ADMIN CANDIDATE MANAGEMENT (Status Workflow)
-    # ============================================================================
-    # Approve candidate registration (open → approved) - grants login access
-    path('admin/candidates/<uuid:id>/activate/', views.CandidateActivateView.as_view(), name='candidate-activate'),
-    # Reject candidate registration (any → rejected) - revokes login access
-    path('admin/candidates/<uuid:id>/deactivate/', views.CandidateDeactivateView.as_view(), name='candidate-deactivate'),
-    # Mark candidate as placed (assigned → closed) - indicates successful placement
-    path('admin/candidates/<uuid:id>/placed/', views.CandidateMarkPlacedView.as_view(), name='candidate-placed'),
-    
-    # ============================================================================
-    # CLIENT INTAKE AND CREDENTIAL FORMS (Legacy UUID-based endpoints)
-    # ============================================================================
-    # Client intake sheet - Create new or get existing
-    path('client-intake/', views.ClientIntakeSheetCreateView.as_view(), name='client-intake-create'),
-    # Client intake sheet - Retrieve, update, or delete specific form
-    path('client-intake/<uuid:id>/', views.ClientIntakeSheetRetrieveUpdateView.as_view(), name='client-intake-detail'),
-    # Credential sheet - Create new or get existing
-    path('credential-sheet/', views.CredentialSheetCreateView.as_view(), name='credential-sheet-create'),
-    # Credential sheet - Retrieve, update, or delete specific form
-    path('credential-sheet/<uuid:id>/', views.CredentialSheetRetrieveUpdateView.as_view(), name='credential-sheet-detail'),
-    # Check form completion status
-    path('forms-completion-status/', views.FormsCompletionStatusView.as_view(), name='forms-completion-status'),
-    
-    # ============================================================================
-    # USER ROLE SUGGESTIONS (Admin Access)
-    # ============================================================================
-    # Get role suggestions for specific profile (Admin only)
-    path('profiles/<uuid:profile_id>/role-suggestions/', user_role_suggestions, name='profile-role-suggestions'),
+    # ── Public auth ──────────────────────────────────────────────────────
+    path('register/',      views.register,              name='auth-register'),
+    path('login/',         views.login,                  name='auth-login'),
+    path('refresh/',       TokenRefreshView.as_view(),   name='token-refresh'),
+
+    # ── Authenticated user ─────────────────────────────────
+    path('logout/',          views.logout,          name='auth-logout'),
+    path('me/',              views.me,               name='auth-me'),
+    path('profile/',         views.update_profile,  name='auth-update-profile'),
+    path('password-change/', views.change_password, name='auth-change-password'),
+
+    # ── Password reset (public) ─────────────────────────────────
+    path('password-reset/',         views.password_reset_request, name='auth-password-reset'),
+    path('password-reset/confirm/', views.password_reset_confirm, name='auth-password-reset-confirm'),
+
+    # ── Admin ───────────────────────────────────────────
+    path('pending-approvals/',  views.pending_approvals, name='auth-pending'),
+    path('approve-user/',       views.approve_user,      name='auth-approve'),
+    path('users/',              views.user_list,         name='auth-user-list'),
 ]

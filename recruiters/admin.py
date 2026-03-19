@@ -1,182 +1,43 @@
-from django.contrib import admin
-from .models import Recruiter, Assignment
-from .models import RecruiterRegistration
-from django.core.mail import send_mail
-from django.conf import settings
-
-@admin.register(Recruiter)
-class RecruiterAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'phone', 'department', 'availability_status', 'active', 'current_clients_count')
-    list_filter = ('active', 'availability_status', 'department', 'status')
-    search_fields = ('name', 'email', 'employee_id')
-    readonly_fields = ('current_clients_count', 'total_placements', 'active_applications', 'created_at', 'updated_at')
-    fieldsets = (
-        ('Basic Info', {'fields': ('user', 'employee_id', 'name', 'email', 'phone')}),
-        ('Employment', {'fields': ('department', 'specialization', 'date_of_joining', 'company_name')}),
-        ('Capacity & Availability', {'fields': ('max_clients', 'current_clients_count', 'availability_status')}),
-        ('Status', {'fields': ('status', 'active', 'verified')}),
-        ('Performance', {'fields': ('total_placements', 'active_applications'), 'classes': ('collapse',)}),
-        ('Notes & Timestamps', {'fields': ('notes', 'created_at', 'updated_at', 'last_login'), 'classes': ('collapse',)}),
-    )
-    actions = ['activate_recruiters', 'deactivate_recruiters', 'mark_absent', 'mark_available', 'export_selected']
-
-    def activate_recruiters(self, request, queryset):
-        activated = 0
-        for r in queryset:
-            try:
-                # enable recruiter record
-                r.active = True
-                r.status = 'active'
-                r.save(update_fields=['active', 'status'])
-                # enable underlying user/profile
-                profile = r.user
-                try:
-                    django_user = profile.user
-                    django_user.is_active = True
-                    django_user.save(update_fields=['is_active'])
-                except Exception:
-                    pass
-                try:
-                    profile.active = True
-                    profile.save(update_fields=['active'])
-                except Exception:
-                    pass
-                activated += 1
-            except Exception:
-                continue
-        self.message_user(request, f"Activated {activated} recruiters")
-    activate_recruiters.short_description = 'Activate selected recruiters'
-
-    def deactivate_recruiters(self, request, queryset):
-        deactivated = 0
-        for r in queryset:
-            try:
-                r.active = False
-                r.status = 'inactive'
-                r.save(update_fields=['active', 'status'])
-                profile = r.user
-                try:
-                    django_user = profile.user
-                    django_user.is_active = False
-                    django_user.save(update_fields=['is_active'])
-                except Exception:
-                    pass
-                try:
-                    profile.active = False
-                    profile.save(update_fields=['active'])
-                except Exception:
-                    pass
-                deactivated += 1
-            except Exception:
-                continue
-        self.message_user(request, f"Deactivated {deactivated} recruiters")
-    deactivate_recruiters.short_description = 'Deactivate selected recruiters'
-
-    def export_selected(self, request, queryset):
-        import csv
-        from django.http import HttpResponse
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename=recruiters.csv'
-        writer = csv.writer(response)
-        writer.writerow(['id', 'name', 'email', 'phone', 'active'])
-        for r in queryset:
-            writer.writerow([r.id, r.name, r.email, r.phone, r.active])
-        return response
-    export_selected.short_description = 'Export selected recruiters to CSV'
-
-    def mark_absent(self, request, queryset):
-        updated = queryset.update(availability_status='absent')
-        self.message_user(request, f"Marked {updated} recruiters as absent.")
-    mark_absent.short_description = 'Mark selected recruiters as Absent'
-
-    def mark_available(self, request, queryset):
-        updated = queryset.update(availability_status='available')
-        self.message_user(request, f"Marked {updated} recruiters as Available.")
-    mark_available.short_description = 'Mark selected recruiters as Available'
-
-@admin.register(Assignment)
-class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ('profile', 'recruiter', 'role', 'status', 'priority', 'assigned_at')
-    list_filter = ('status', 'role', 'priority', 'assigned_at')
-    search_fields = ('profile__first_name', 'profile__last_name', 'profile__email', 'recruiter__name')
-    readonly_fields = ('id', 'assigned_at', 'last_activity', 'updated_at', 'reassigned_from')
-    fieldsets = (
-        ('Assignment', {'fields': ('id', 'profile', 'recruiter', 'role', 'status', 'priority')}),
-        ('Notes', {'fields': ('notes', 'internal_comments')}),
-        ('Reassignment', {'fields': ('reassigned_from', 'reassignment_reason'), 'classes': ('collapse',)}),
-        ('Timestamps', {'fields': ('assigned_at', 'last_activity', 'placement_date', 'updated_at'), 'classes': ('collapse',)}),
-    )
+﻿from django.contrib import admin
+from .models import RecruiterProfile, RecruiterBankDetail, RecruiterAssignment, DailySubmissionLog, JobLinkEntry
 
 
-@admin.register(RecruiterRegistration)
-class RecruiterRegistrationAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'email', 'phone_number', 'is_verified', 'created_at')
-    list_filter = ('is_verified', 'created_at')
-    search_fields = ('full_name', 'email', 'aadhaar_number', 'pan_number')
-    actions = ['verify_and_create_account']
+@admin.register(RecruiterProfile)
+class RecruiterProfileAdmin(admin.ModelAdmin):
+    list_display  = ('user', 'first_name', 'last_name', 'phone', 'city', 'country', 'created_at')
+    search_fields = ('user__email', 'first_name', 'last_name')
+    raw_id_fields = ('user',)
+    ordering      = ('-created_at',)
 
-    def verify_and_create_account(self, request, queryset):
-        """Admin action to mark selected registrations as verified and create accounts."""
-        created = 0
-        for reg in queryset:
-            if not reg.is_verified:
-                reg.is_verified = True
-                reg.save()
-                # Auto-create user/profile/recruiter (reuse the logic from views)
-                try:
-                    from django.contrib.auth import get_user_model
-                    from users.models import Profile
-                    from .models import Recruiter
 
-                    UserModel = get_user_model()
-                    if not UserModel.objects.filter(email=reg.email).exists():
-                        random_password = UserModel.objects.make_random_password()
-                        user = UserModel.objects.create_user(
-                            username=reg.email,
-                            email=reg.email,
-                            password=random_password,
-                            first_name=(reg.full_name.split(' ')[0] if reg.full_name else ''),
-                            last_name=(' '.join(reg.full_name.split(' ')[1:]) if reg.full_name and len(reg.full_name.split(' '))>1 else '')
-                        )
-                        # keep the account inactive until admin explicitly activates
-                        user.is_active = False
-                        user.save(update_fields=['is_active'])
-                    else:
-                        user = UserModel.objects.filter(email=reg.email).first()
+@admin.register(RecruiterBankDetail)
+class RecruiterBankDetailAdmin(admin.ModelAdmin):
+    list_display  = ('recruiter', 'bank_name', 'account_holder_name', 'masked_account', 'updated_at')
+    search_fields = ('recruiter__email', 'bank_name', 'account_holder_name')
+    raw_id_fields = ('recruiter',)
+    readonly_fields = ('masked_account', 'updated_at')
 
-                    profile, _ = Profile.objects.get_or_create(
-                        user=user,
-                        defaults={'first_name': (reg.full_name.split(' ')[0] if reg.full_name else ''),
-                                  'last_name': (' '.join(reg.full_name.split(' ')[1:]) if reg.full_name and len(reg.full_name.split(' '))>1 else ''),
-                                  'email': reg.email,
-                                  'phone': reg.phone_number}
-                    )
 
-                    if not Recruiter.objects.filter(email=reg.email).exists():
-                        Recruiter.objects.create(
-                            user=profile,
-                            name=reg.full_name,
-                            email=reg.email,
-                            phone=reg.phone_number,
-                            active=False,
-                        )
+@admin.register(RecruiterAssignment)
+class RecruiterAssignmentAdmin(admin.ModelAdmin):
+    list_display  = ('recruiter', 'candidate', 'role_type', 'is_active', 'assigned_at')
+    list_filter   = ('is_active',)
+    search_fields = ('recruiter__email', 'candidate__user__email')
+    raw_id_fields = ('recruiter', 'candidate', 'assigned_by')
+    ordering      = ('-assigned_at',)
 
-                    # send informational email (if email configured)
-                    try:
-                        send_mail(
-                            'Your recruiter account has been created',
-                            f'Hello {reg.full_name}, your registration has been approved. Please use your email to log in and reset your password if needed.',
-                            settings.DEFAULT_FROM_EMAIL,
-                            [reg.email],
-                            fail_silently=True
-                        )
-                    except Exception:
-                        pass
 
-                    created += 1
-                except Exception:
-                    # continue with others
-                    continue
+@admin.register(DailySubmissionLog)
+class DailySubmissionLogAdmin(admin.ModelAdmin):
+    list_display  = ('recruiter', 'candidate', 'log_date', 'applications_count', 'created_at')
+    search_fields = ('recruiter__email', 'candidate__user__email')
+    raw_id_fields = ('recruiter', 'candidate')
+    ordering      = ('-log_date',)
 
-        self.message_user(request, f"Verified {queryset.count()} registrations, created {created} accounts.")
-    verify_and_create_account.short_description = 'Verify registrations and create accounts'
+
+@admin.register(JobLinkEntry)
+class JobLinkEntryAdmin(admin.ModelAdmin):
+    list_display  = ('company_name', 'role_title', 'candidate', 'application_status', 'submitted_at')
+    list_filter   = ('application_status', 'fetch_status')
+    search_fields = ('company_name', 'role_title', 'candidate__user__email')
+    raw_id_fields = ('submission_log', 'candidate', 'submitted_by')
