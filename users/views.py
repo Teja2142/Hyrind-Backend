@@ -6,6 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
+from candidates.models import Candidate
 from .models import User
 from .serializers import (
     RegisterSerializer, UserSerializer, UserListSerializer,
@@ -227,6 +228,10 @@ def approve_user(request):
     if action == 'approved':
         user.portal_access = True
     user.save()
+
+    # Auto-create a Candidate record when a candidate user is approved
+    if action == 'approved' and user.role == 'candidate':
+        Candidate.objects.get_or_create(user=user, defaults={'status': 'approved'})
 
     log_action(
         actor=request.user,

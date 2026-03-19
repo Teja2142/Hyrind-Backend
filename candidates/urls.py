@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     # ── Candidate list / detail ─────────────────────────────────────────
     path('',                                       views.candidate_list,          name='candidate-list'),
+    path('me/',                                    views.candidate_me,            name='candidate-me'),
     path('<uuid:candidate_id>/',                   views.candidate_detail,        name='candidate-detail'),
     path('<uuid:candidate_id>/status/',            views.update_candidate_status, name='candidate-status'),
 

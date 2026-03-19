@@ -48,6 +48,30 @@ def candidate_list(request):
 
 
 @extend_schema(
+    summary='Get the current user\'s own Candidate record (creates one if missing)',
+    responses={200: CandidateSerializer},
+    tags=['Candidates'],
+)
+@api_view(['GET'])
+@permission_classes([IsApproved])
+def candidate_me(request):
+    """Return the Candidate record belonging to the logged-in user, creating it lazily if needed."""
+    if request.user.role != 'candidate':
+        return Response({'error': 'Not a candidate user'}, status=status.HTTP_403_FORBIDDEN)
+    # Create with 'approved' status for already-approved users so the intake is immediately accessible
+    candidate, created = Candidate.objects.get_or_create(
+        user=request.user,
+        defaults={'status': 'approved'},
+    )
+    # If it already existed but is still at pending_approval (leftover from before auto-create),
+    # promote it since the user is approved at the auth level.
+    if not created and candidate.status == 'pending_approval':
+        candidate.status = 'approved'
+        candidate.save(update_fields=['status'])
+    return Response(CandidateSerializer(candidate).data)
+
+
+@extend_schema(
     summary='Get candidate detail',
     responses={200: CandidateSerializer, 404: OpenApiResponse(description='Not found')},
     tags=['Candidates'],
